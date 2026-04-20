@@ -141,56 +141,84 @@ HTML = f"""
 @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap');
 * {{ box-sizing: border-box; }}
 html, body {{ margin: 0; padding: 0; background: #000; color: #e0e0e0; font-family: 'JetBrains Mono', monospace; font-weight: 400; -webkit-font-smoothing: antialiased; }}
-::selection {{ background: rgba(255, 255, 255, 0.08); color: inherit; }}
-body {{ padding: 24px; outline: none; min-height: 100vh; }}
+body {{ padding: 24px; min-height: 100vh; }}
 #manuscript-header {{
     color: #5a5a5a;
     font-size: 11px;
     border-bottom: 1px solid #2a2a2a;
     padding-bottom: 8px;
-    margin-bottom: 16px;
+    margin-bottom: 24px;
     user-select: none;
 }}
-.msg {{ white-space: pre-wrap; word-break: break-word; line-height: 1.7; font-size: 14px; margin-bottom: 16px; }}
-.msg.user {{ color: #9a9a9a; }}
-.msg.assistant {{ color: #d0d0d0; }}
-.msg.user::before {{ content: "> "; color: #5a5a5a; }}
-.msg.assistant::before {{ content: "~ "; color: #5a5a5a; }}
-.separator {{ color: #3a3a3a; margin: 24px 0; user-select: none; font-size: 14px; }}
-#cursor-line {{ display: flex; align-items: center; margin-top: 24px; }}
-.prompt {{ color: #5a5a5a; margin-right: 8px; user-select: none; }}
-#scribe-area {{ flex-grow: 1; outline: none; caret-color: #8a8a8a; word-break: break-word; white-space: pre-wrap; font-size: 14px; }}
-#scribe-area:focus {{ outline: none; }}
+#manuscript {{
+    white-space: pre-wrap;
+    word-break: break-word;
+    line-height: 1.7;
+    font-size: 14px;
+}}
+.msg {{
+    margin-bottom: 16px;
+}}
+.msg.user {{
+    color: #9a9a9a;
+}}
+.msg.assistant {{
+    color: #d0d0d0;
+}}
+.msg.user::before {{
+    content: "> ";
+    color: #5a5a5a;
+}}
+.msg.assistant::before {{
+    content: "~ ";
+    color: #5a5a5a;
+}}
+.separator {{
+    color: #2a2a2a;
+    font-size: 12px;
+    margin: 16px 0;
+    user-select: text;
+}}
+#scribe-line {{
+    display: flex;
+    align-items: center;
+    margin-top: 24px;
+    color: #5a5a5a;
+}}
+.prompt {{
+    margin-right: 8px;
+    user-select: none;
+}}
+#messageInput {{
+    background: transparent;
+    border: none;
+    color: #e0e0e0;
+    font-family: inherit;
+    font-size: 14px;
+    flex-grow: 1;
+    outline: none;
+    caret-color: #8a8a8a;
+    padding: 0;
+}}
+#messageInput::placeholder {{ opacity: 0; }}
 </style>
 <link rel="stylesheet" href="/css" id="dynamic-css">
 </head>
-<body contenteditable="false">
+<body>
 <div id="manuscript-header">VOID · {MODEL_NAME} ({PROVIDER}) · thinking: {THINKING} · memory: {MEMORY_STATUS} · {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</div>
 <div id="manuscript">
     <div class="separator">***</div>
-    <div id="cursor-line">
-        <span class="prompt">></span>
-        <div id="scribe-area" contenteditable="true"></div>
-    </div>
+</div>
+<div id="scribe-line">
+    <span class="prompt">></span>
+    <input type="text" id="messageInput" autofocus autocomplete="off" placeholder=" ">
 </div>
 <script>
 const manuscript = document.getElementById('manuscript');
-const scribeArea = document.getElementById('scribe-area');
+const input = document.getElementById('messageInput');
 let isSending = false;
 
 function refreshCSS() {{ document.getElementById('dynamic-css').href = '/css?' + Date.now(); }}
-
-async function loadMemory() {{
-    // В гримуаре мы не загружаем память, чтобы не перестраивать DOM.
-    // История будет пустой при загрузке. Но при желании можно раскомментировать.
-    /*
-    try {{
-        const res = await fetch('/memory');
-        const data = await res.json();
-        // ... логика восстановления ...
-    }} catch (e) {{ console.error('Failed to load memory:', e); }}
-    */
-}}
 
 function addMessageToUI(role, content) {{
     const msgDiv = document.createElement('div');
@@ -198,40 +226,26 @@ function addMessageToUI(role, content) {{
     msgDiv.textContent = content;
     msgDiv.style.userSelect = 'text';
     msgDiv.style.webkitUserSelect = 'text';
-    manuscript.insertBefore(msgDiv, document.getElementById('cursor-line'));
+    manuscript.appendChild(msgDiv);
     
     const sep = document.createElement('div');
     sep.className = 'separator';
     sep.textContent = '***';
-    sep.style.userSelect = 'none';
-    manuscript.insertBefore(sep, document.getElementById('cursor-line'));
+    sep.style.userSelect = 'text';
+    manuscript.appendChild(sep);
     
     window.scrollTo(0, document.body.scrollHeight);
 }}
 
-function createCursorLine() {{
-    const cursorLine = document.createElement('div');
-    cursorLine.id = 'cursor-line';
-    cursorLine.innerHTML = '<span class="prompt">></span><div id="scribe-area" contenteditable="true"></div>';
-    manuscript.appendChild(cursorLine);
-    const newScribeArea = document.getElementById('scribe-area');
-    newScribeArea.focus();
-    newScribeArea.addEventListener('keydown', handleKeyDown);
-    return newScribeArea;
-}}
-
-async function sendMessage(text) {{
+async function sendMessage() {{
+    const text = input.value.trim();
     if (!text || isSending) return;
     isSending = true;
+    input.value = '';
+    input.disabled = true;
     
-    // Убираем старый курсор
-    const oldCursorLine = document.getElementById('cursor-line');
-    oldCursorLine.remove();
-    
-    // Добавляем сообщение пользователя и разделитель
     addMessageToUI('user', text);
     
-    // Создаём блок для ответа ассистента
     const assistantDiv = document.createElement('div');
     assistantDiv.className = 'msg assistant';
     assistantDiv.textContent = '';
@@ -256,41 +270,32 @@ async function sendMessage(text) {{
             window.scrollTo(0, document.body.scrollHeight);
         }}
         
-        // Добавляем разделитель после ответа
         const sep = document.createElement('div');
         sep.className = 'separator';
         sep.textContent = '***';
-        sep.style.userSelect = 'none';
+        sep.style.userSelect = 'text';
         manuscript.appendChild(sep);
         
         refreshCSS();
     }} catch (e) {{ console.error(e); }} finally {{
-        // Создаём новую строку курсора
-        const newScribeArea = createCursorLine();
         isSending = false;
+        input.disabled = false;
+        input.focus();
     }}
 }}
 
-function handleKeyDown(e) {{
+input.addEventListener('keydown', (e) => {{
     if (e.key === 'Enter' && !e.shiftKey) {{
         e.preventDefault();
-        const text = scribeArea.innerText.trim();
-        if (text) {{
-            sendMessage(text);
-        }}
+        sendMessage();
     }}
-}}
-
-// Инициализация
-scribeArea.addEventListener('keydown', handleKeyDown);
-scribeArea.focus();
-
-// При клике на body фокус на scribeArea
-document.body.addEventListener('click', () => {{
-    document.getElementById('scribe-area').focus();
 }});
 
-loadMemory();
+document.body.addEventListener('click', () => {{
+    input.focus();
+}});
+
+// Начальный разделитель уже в HTML
 </script>
 </body>
 </html>
