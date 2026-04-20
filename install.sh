@@ -141,7 +141,7 @@ HTML = f"""
 @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap');
 * {{ box-sizing: border-box; margin: 0; padding: 0; }}
 html, body {{ background: #000; color: #e0e0e0; font-family: 'JetBrains Mono', monospace; font-weight: 400; -webkit-font-smoothing: antialiased; }}
-body {{ padding: 8px 12px; min-height: 100vh; user-select: text; }}
+body {{ padding: 6px 10px; min-height: 100vh; user-select: text; }}
 #manuscript-header {{
     color: #4a4a4a;
     font-size: 10px;
@@ -179,7 +179,7 @@ body {{ padding: 8px 12px; min-height: 100vh; user-select: text; }}
     margin: 0 0 0 0;
     user-select: text;
 }}
-#input-container {{
+#input-line {{
     display: flex;
     align-items: center;
     margin-top: 0;
@@ -189,7 +189,7 @@ body {{ padding: 8px 12px; min-height: 100vh; user-select: text; }}
     margin-right: 8px;
     user-select: none;
 }}
-#messageInput {{
+#editable-input {{
     background: transparent;
     border: none;
     color: #e0e0e0;
@@ -200,8 +200,13 @@ body {{ padding: 8px 12px; min-height: 100vh; user-select: text; }}
     caret-color: #8a8a8a;
     padding: 0;
     user-select: text;
+    white-space: nowrap;
+    overflow-x: auto;
 }}
-#messageInput::placeholder {{ opacity: 0; }}
+#editable-input:empty::before {{
+    content: attr(data-placeholder);
+    color: #3a3a3a;
+}}
 </style>
 <link rel="stylesheet" href="/css" id="dynamic-css">
 </head>
@@ -210,13 +215,13 @@ body {{ padding: 8px 12px; min-height: 100vh; user-select: text; }}
 <div id="manuscript">
     <div class="separator">***</div>
 </div>
-<div id="input-container">
+<div id="input-line">
     <span class="prompt">></span>
-    <input type="text" id="messageInput" autofocus autocomplete="off" placeholder=" ">
+    <div id="editable-input" contenteditable="true" data-placeholder=" "></div>
 </div>
 <script>
 const manuscript = document.getElementById('manuscript');
-const input = document.getElementById('messageInput');
+const editableInput = document.getElementById('editable-input');
 let isSending = false;
 
 function refreshCSS() {{ document.getElementById('dynamic-css').href = '/css?' + Date.now(); }}
@@ -236,11 +241,11 @@ function addMessageToUI(role, content) {{
 }}
 
 async function sendMessage() {{
-    const text = input.value.trim();
+    const text = editableInput.innerText.trim();
     if (!text || isSending) return;
     isSending = true;
-    input.value = '';
-    input.disabled = true;
+    editableInput.innerText = '';
+    editableInput.focus();
     
     addMessageToUI('user', text);
     
@@ -274,24 +279,23 @@ async function sendMessage() {{
         refreshCSS();
     }} catch (e) {{ console.error(e); }} finally {{
         isSending = false;
-        input.disabled = false;
-        input.focus();
+        editableInput.focus();
     }}
 }}
 
-input.addEventListener('keydown', (e) => {{
+editableInput.addEventListener('keydown', (e) => {{
     if (e.key === 'Enter' && !e.shiftKey) {{
         e.preventDefault();
         sendMessage();
     }}
 }});
 
-// Фокус на input при клике в любом месте, но без сброса выделения
-document.body.addEventListener('click', (e) => {{
-    input.focus();
+// Фокус на editableInput при клике в любом месте
+document.body.addEventListener('click', () => {{
+    editableInput.focus();
 }});
 
-// Разрешаем выделение и копирование
+// Поддержка копирования
 document.addEventListener('copy', (e) => {{
     const selection = window.getSelection();
     e.clipboardData.setData('text/plain', selection.toString());
