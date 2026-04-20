@@ -179,7 +179,7 @@ function addMessageToUI(role, content, idx) {
     let lastClick = 0;
     wrap.onclick = (e) => {
         const now = Date.now();
-        if (now - lastClick < 300) {
+        if (now - lastClick < 200) {
             e.stopPropagation();
             fetch('/delete', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({index: parseInt(wrap.dataset.index)}) }).then(res => res.ok && loadMemory());
         }
@@ -239,58 +239,76 @@ async function sendMessage() {
 }
 input.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); } });
 loadMemory();
-// --- UNDO / REDO для CSS ---
+
+// --- UNDO / REDO через History API (кнопки браузера) ---
 let cssHistory = [];
-let cssHistoryIndex = -1;
+let currentHistoryIndex = -1;
 const MAX_HISTORY = 100;
-function saveCSSState(cssText) {
-    if (cssHistoryIndex < cssHistory.length - 1) {
-        cssHistory = cssHistory.slice(0, cssHistoryIndex + 1);
-    }
-    cssHistory.push(cssText);
-    if (cssHistory.length > MAX_HISTORY) {
-        cssHistory.shift();
-    } else {
-        cssHistoryIndex++;
+
+async function applyCSSAndPushState(cssText) {
+    try {
+        const res = await fetch('/css', { method: 'POST', body: cssText });
+        if (res.ok) {
+            refreshCSS();
+            
+            if (currentHistoryIndex < cssHistory.length - 1) {
+                cssHistory = cssHistory.slice(0, currentHistoryIndex + 1);
+            }
+            
+            cssHistory.push(cssText);
+            if (cssHistory.length > MAX_HISTORY) {
+                cssHistory.shift();
+            } else {
+                currentHistoryIndex++;
+            }
+            
+            const url = new URL(window.location);
+            url.hash = `step${currentHistoryIndex}`;
+            window.history.pushState({ index: currentHistoryIndex, css: cssText }, '', url);
+        }
+    } catch (e) {
+        console.error('Failed to apply CSS:', e);
     }
 }
-document.addEventListener('keydown', (e) => {
-    if (e.ctrlKey && e.key === 'z' && !e.shiftKey) {
-        e.preventDefault();
-        if (cssHistoryIndex > 0) {
-            cssHistoryIndex--;
-            const prevCSS = cssHistory[cssHistoryIndex];
-            fetch('/css', { method: 'POST', body: prevCSS }).then(() => refreshCSS());
-        }
-    } else if (e.ctrlKey && (e.key === 'y' || (e.key === 'Z' && e.shiftKey))) {
-        e.preventDefault();
-        if (cssHistoryIndex < cssHistory.length - 1) {
-            cssHistoryIndex++;
-            const nextCSS = cssHistory[cssHistoryIndex];
-            fetch('/css', { method: 'POST', body: nextCSS }).then(() => refreshCSS());
+
+window.addEventListener('popstate', (event) => {
+    const state = event.state;
+    if (state && state.css !== undefined) {
+        fetch('/css', { method: 'POST', body: state.css }).then(() => refreshCSS());
+        currentHistoryIndex = state.index;
+    } else {
+        if (cssHistory.length > 0) {
+            currentHistoryIndex = 0;
+            fetch('/css', { method: 'POST', body: cssHistory[0] }).then(() => refreshCSS());
         }
     }
 });
+
 const originalFetch = window.fetch;
 window.fetch = async function(...args) {
     const res = await originalFetch.apply(this, args);
     if (args[0] === '/css' && args[1]?.method === 'POST') {
         const cssText = args[1].body;
-        setTimeout(() => saveCSSState(cssText), 100);
+        setTimeout(() => applyCSSAndPushState(cssText), 100);
     }
     return res;
 };
+
 (async function initHistory() {
     try {
         const res = await fetch('/css');
         const initialCSS = await res.text();
         if (initialCSS) {
             cssHistory = [initialCSS];
-            cssHistoryIndex = 0;
+            currentHistoryIndex = 0;
+            const url = new URL(window.location);
+            url.hash = 'step0';
+            window.history.replaceState({ index: 0, css: initialCSS }, '', url);
         }
     } catch (e) {}
 })();
 // --- конец UNDO/REDO ---
+
 input.focus();
 </script>
 </body>
