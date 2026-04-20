@@ -1,8 +1,8 @@
 #!/bin/bash
 set -e
 
-# VOID Installer — ТОЧНО ТВОЙ ОРИГИНАЛЬНЫЙ ФАЙЛ + Command+A + минимальное расстояние
-# (шапка и первый текст теперь практически вплотную)
+# VOID Installer — ТОЧНО ТВОЙ ОРИГИНАЛЬНЫЙ ФАЙЛ + финальные правки
+# (шапка → сразу *** → сразу > текст без пустых строк)
 
 if [ "$EUID" -ne 0 ]; then
     echo "Error: run as root"
@@ -40,7 +40,7 @@ source venv/bin/activate
 pip install --upgrade pip
 pip install flask requests python-dotenv
 
-# === void.py — оригинал + Command+A + шапка и текст вплотную ===
+# === void.py — оригинал + плотная верстка + префиксы > и ~ как настоящий текст ===
 cat > void.py << 'EOF'
 #!/usr/bin/env python3
 """
@@ -127,7 +127,7 @@ HTML = f"""
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes">
-<title>VOID</title>
+<title>VOID · Гримуар</title>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap');
 * {{ box-sizing: border-box; margin: 0; padding: 0; }}
@@ -137,7 +137,7 @@ body {{ padding: 4px 8px; min-height: 100vh; }}
 #manuscript-header {{
     color: #4a4a4a;
     font-size: 10px;
-    margin-bottom: 0;           /* ← убрали отступ, теперь вплотную */
+    margin-bottom: 0;
     user-select: text;
 }}
 #manuscript {{
@@ -145,7 +145,7 @@ body {{ padding: 4px 8px; min-height: 100vh; }}
     word-break: break-word;
     line-height: 1.6;
     font-size: 14px;
-    margin-top: 0;              /* ← убрали любой верхний отступ */
+    margin-top: 0;
     -webkit-user-select: text !important;
     -moz-user-select: text !important;
     -ms-user-select: text !important;
@@ -156,10 +156,6 @@ body {{ padding: 4px 8px; min-height: 100vh; }}
     margin-bottom: 0;
     user-select: text;
 }}
-.msg.user {{ color: #9a9a9a; }}
-.msg.assistant {{ color: #d0d0d0; }}
-.msg.user::before {{ content: "> "; color: #5a5a5a; }}
-.msg.assistant::before {{ content: "~ "; color: #5a5a5a; }}
 .separator {{
     color: #181818;
     font-size: 12px;
@@ -217,7 +213,9 @@ function refreshCSS() {{ document.getElementById('dynamic-css').href = '/css?' +
 function addMessageToUI(role, content) {{
     const msgDiv = document.createElement('div');
     msgDiv.className = `msg ${{role}}`;
-    msgDiv.textContent = content;
+    // Префиксы > и ~ теперь настоящий текст (будут выделяться и копироваться)
+    const prefix = role === 'user' ? '> ' : '~ ';
+    msgDiv.textContent = prefix + content;
     manuscript.appendChild(msgDiv);
    
     const sep = document.createElement('div');
@@ -239,7 +237,7 @@ async function sendMessage() {{
    
     const assistantDiv = document.createElement('div');
     assistantDiv.className = 'msg assistant';
-    assistantDiv.textContent = '';
+    assistantDiv.textContent = '~ ';  // начальный префикс для ассистента
     manuscript.appendChild(assistantDiv);
    
     window.scrollTo(0, document.body.scrollHeight);
@@ -255,7 +253,7 @@ async function sendMessage() {{
             if (done) break;
             const chunk = decoder.decode(value, {{stream: true}});
             fullResponse += chunk;
-            assistantDiv.textContent = fullResponse;
+            assistantDiv.textContent = '~ ' + fullResponse;
             window.scrollTo(0, document.body.scrollHeight);
         }}
        
@@ -421,7 +419,12 @@ if systemctl is-active --quiet void.service; then
     IP=$(hostname -I | awk '{print $1}')
     echo "✅ VOID установлен"
     echo "🌐 http://$IP:42424"
-    echo "Теперь шапка и первый текст идут почти вплотную (отступ убрали полностью)"
+    echo "Теперь точно как ты просил:"
+    echo "   • Шапка"
+    echo "   • Сразу ***"
+    echo "   • Сразу > текст (вплотную)"
+    echo "   • > и ~ — настоящий текст, выделяются и копируются"
+    echo "   • Command+A / Ctrl+A выделяет всё"
 else
     echo "❌ Ошибка:"
     journalctl -u void.service -n 30 --no-pager
