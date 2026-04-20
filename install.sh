@@ -46,7 +46,6 @@ CSS_FILE = VOIDS_DIR / "current.css"
 
 VOIDS_DIR.mkdir(exist_ok=True)
 
-# Серверная память (только в оперативке, без записи на диск)
 conversation_history = []
 thinking_enabled = False
 memory_enabled = False
@@ -288,26 +287,24 @@ def get_history():
 def handle_command():
     global thinking_enabled, memory_enabled, conversation_history
     data = request.get_json()
-    cmd = data.get('command', '').lower()
+    cmd = data.get('command', '').lower().strip()
     
-    if cmd == '/think on':
-        thinking_enabled = True
-        return jsonify({'thinking': True, 'memory': memory_enabled, 'message': 'thinking enabled'})
-    elif cmd == '/think off':
-        thinking_enabled = False
-        return jsonify({'thinking': False, 'memory': memory_enabled, 'message': 'thinking disabled'})
-    elif cmd == '/memory on':
-        memory_enabled = True
-        return jsonify({'thinking': thinking_enabled, 'memory': True, 'message': 'memory enabled'})
-    elif cmd == '/memory off':
-        memory_enabled = False
-        conversation_history = []
-        return jsonify({'thinking': thinking_enabled, 'memory': False, 'message': 'memory cleared'})
-    elif cmd == '/clear':
+    if cmd == '/t':
+        thinking_enabled = not thinking_enabled
+        status = 'on' if thinking_enabled else 'off'
+        return jsonify({'thinking': thinking_enabled, 'memory': memory_enabled, 'message': f'thinking {status}'})
+    elif cmd == '/m':
+        memory_enabled = not memory_enabled
+        if not memory_enabled:
+            conversation_history = []
+        status = 'on' if memory_enabled else 'off'
+        msg = f'memory {status}' + (' (cleared)' if not memory_enabled else '')
+        return jsonify({'thinking': thinking_enabled, 'memory': memory_enabled, 'message': msg})
+    elif cmd == '/c':
         conversation_history = []
         return jsonify({'thinking': thinking_enabled, 'memory': memory_enabled, 'clear': True})
     else:
-        return jsonify({'thinking': thinking_enabled, 'memory': memory_enabled, 'message': 'unknown command'})
+        return jsonify({'thinking': thinking_enabled, 'memory': memory_enabled, 'message': '?'})
 
 @app.route('/chat', methods=['POST'])
 def chat():
