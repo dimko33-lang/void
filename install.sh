@@ -1,14 +1,15 @@
+```bash
 #!/bin/bash
 set -e
 
 if [ "$EUID" -ne 0 ]; then
-    echo "Error: run as root"
+    echo "run as root"
     exit 1
 fi
 
 KEY="$1"
 if [ -z "$KEY" ]; then
-    echo "Usage: curl -s URL | sudo bash -s -- \"YOUR-KEY\""
+    echo "Usage: curl -s URL | sudo bash -s -- \"API_KEY\""
     exit 1
 fi
 
@@ -28,371 +29,204 @@ echo "KIMI_API_KEY=$KEY" > .env
 chmod 600 .env
 
 python3 -m venv venv
-source venv/bin/activate
-pip install --upgrade pip
-pip install flask requests python-dotenv
+/opt/void/venv/bin/pip install --upgrade pip
+/opt/void/venv/bin/pip install flask requests python-dotenv
 
 cat > void.py << 'EOF'
 #!/usr/bin/env python3
-"""
-VOID — Kimi K2.5 (Moonshot Global)
-"""
-import json
-import os
-import re
-import subprocess
-import shlex
+import json, os, re, subprocess
 from pathlib import Path
-from typing import List, Dict, Generator
 from datetime import datetime
 import requests
 from dotenv import load_dotenv
-from flask import Flask, Response, jsonify, request, stream_with_context
+from flask import Flask, Response, request, stream_with_context
 
 load_dotenv()
 
-BASE_DIR = Path(__file__).parent
-VOIDS_DIR = BASE_DIR / "voids"
-CSS_FILE = VOIDS_DIR / "current.css"
-LOG_FILE = BASE_DIR / "void.log"
-MEMORY_FILE = BASE_DIR / "memory.json"
+BASE = Path(__file__).parent
+VOIDS = BASE / "voids"
+CSS = VOIDS / "current.css"
+MEM = BASE / "memory.json"
+LOG = BASE / "void.log"
 
-VOIDS_DIR.mkdir(exist_ok=True)
+VOIDS.mkdir(exist_ok=True)
 
 memory = []
-if MEMORY_FILE.exists():
+if MEM.exists():
     try:
-        with open(MEMORY_FILE, 'r', encoding='utf-8') as f:
-            memory.extend(json.load(f))
+        memory = json.loads(MEM.read_text(encoding="utf-8"))
     except:
         pass
 
-def save_memory():
-    with open(MEMORY_FILE, 'w', encoding='utf-8') as f:
-        json.dump(memory, f, ensure_ascii=False, indent=2)
+def save():
+    MEM.write_text(json.dumps(memory, ensure_ascii=False), encoding="utf-8")
 
-def log_to_file(role, content):
-    with open(LOG_FILE, 'a', encoding='utf-8') as f:
-        f.write(f"{content}\n***\n")
+def log(x):
+    with open(LOG, "a", encoding="utf-8") as f:
+        f.write(x + "\n***\n")
 
-class VoidAgent:
+class Agent:
     def __init__(self):
-        self.api_key = os.getenv("KIMI_API_KEY", "").strip()
-        self.model = "kimi-k2.5"
+        self.key = os.getenv("KIMI_API_KEY")
         self.url = "https://api.moonshot.ai/v1/chat/completions"
-        self.timeout = 120
 
-    def _call_llm_stream(self, messages: List[Dict]) -> Generator[str, None, None]:
-        headers = {"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"}
-        payload = {"model": self.model, "messages": messages, "stream": True}
-        resp = requests.post(self.url, headers=headers, json=payload, timeout=self.timeout, stream=True)
-        resp.raise_for_status()
-        for line in resp.iter_lines(decode_unicode=True):
-            if line and line.startswith("data: "):
-                data = line[6:]
-                if data == "[DONE]":
-                    break
-                try:
-                    chunk = json.loads(data)
-                    delta = chunk.get("choices", [{}])[0].get("delta", {})
-                    content = delta.get("content", "")
-                    if content:
-                        yield content
-                except:
-                    continue
+    def stream(self, messages):
+        r = requests.post(self.url,
+            headers={"Authorization": f"Bearer {self.key}"},
+            json={"model":"kimi-k2.5","messages":messages,"stream":True},
+            stream=True)
+        r.raise_for_status()
+        for l in r.iter_lines(decode_unicode=True):
+            if not l or not l.startswith("data: "): continue
+            d = l[6:]
+            if d == "[DONE]": break
+            try:
+                j = json.loads(d)
+                c = j["choices"][0]["delta"].get("content","")
+                if c: yield c
+            except: pass
 
-    def chat_stream(self, messages: List[Dict]) -> Generator[str, None, None]:
-        yield from self._call_llm_stream(messages)
-
-agent = VoidAgent()
+agent = Agent()
 app = Flask(__name__)
 
-MODEL_NAME = "kimi-k2.5"
-PROVIDER = "Moonshot"
-THINKING = "enabled"
-MEMORY_STATUS = "on"
-
-HTML = f"""
-<!DOCTYPE html>
-<html lang="ru">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes">
-<title>VOID · Гримуар</title>
+HTML = f"""<!DOCTYPE html>
+<html><head><meta charset="UTF-8">
 <style>
-@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap');
-* {{ box-sizing: border-box; margin: 0; padding: 0; }}
-html, body {{ background: #000; color: #e0e0e0; font-family: 'JetBrains Mono', monospace; font-weight: 400; -webkit-font-smoothing: antialiased; }}
-body {{ padding: 4px 8px; min-height: 100vh; }}
-
-#manuscript-header {{
-    color: #4a4a4a;
-    font-size: 10px;
-    margin-bottom: 0;               /* минимальное расстояние */
-    user-select: text;
-}}
-#manuscript {{
-    white-space: pre-wrap;
-    word-break: break-word;
-    line-height: 1.6;
-    font-size: 14px;
-    margin-top: 0;
-    -webkit-user-select: text !important;
-    -moz-user-select: text !important;
-    user-select: text !important;
-    cursor: text;
-}}
-.msg {{
-    margin-bottom: 0;
-    user-select: text;
-}}
-.separator {{
-    color: transparent;
-    font-size: 12px;
-    margin: 0;
-    user-select: text;
-}}
-#input-line {{
-    display: flex;
-    align-items: center;
-    margin-top: 0;
-    color: #5a5a5a;
-}}
-.prompt {{
-    margin-right: 8px;
-    user-select: none;
-}}
-#editable-input {{
-    background: transparent;
-    border: none;
-    color: #e0e0e0;
-    font-family: inherit;
-    font-size: 14px;
-    flex-grow: 1;
-    outline: none;
-    caret-color: #8a8a8a;
-    padding: 0;
-    user-select: text;
-}}
-</style>
-<link rel="stylesheet" href="/css" id="dynamic-css">
-</head>
+body {{background:#000;color:#e0e0e0;font-family:monospace;margin:0;padding:6px}}
+#screen {{white-space:pre-wrap;outline:none;caret-color:#aaa}}
+.header {{color:#555}}
+</style></head>
 <body>
-<div id="manuscript-header">VOID · {MODEL_NAME} ({PROVIDER}) · thinking: {THINKING} · memory: {MEMORY_STATUS} · {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</div>
-<div id="manuscript">
-    <div class="separator">***</div>
-</div>
-<div id="input-line">
-    <span class="prompt">></span>
-    <div id="editable-input" contenteditable="true" data-placeholder=" "></div>
-</div>
+
+<pre id="screen" contenteditable="true">
+<span class="header">VOID · kimi-k2.5 · Moonshot · {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</span>
+***
+> 
+</pre>
 
 <script>
-const manuscript = document.getElementById('manuscript');
-const editableInput = document.getElementById('editable-input');
-let isSending = false;
+const s = document.getElementById('screen');
+let busy = false;
 
-function refreshCSS() {{ document.getElementById('dynamic-css').href = '/css?' + Date.now(); }}
-
-function addMessageToUI(role, content) {{
-    const msgDiv = document.createElement('div');
-    msgDiv.className = `msg ${{role}}`;
-    const prefix = role === 'user' ? '> ' : '~ ';
-    msgDiv.textContent = prefix + content;        // ← настоящий текст, копируется
-    manuscript.appendChild(msgDiv);
-   
-    const sep = document.createElement('div');
-    sep.className = 'separator';
-    sep.textContent = '***';
-    manuscript.appendChild(sep);
-   
-    window.scrollTo(0, document.body.scrollHeight);
+function last() {{
+    let L = s.innerText.split('\\n');
+    for (let i=L.length-1;i>=0;i--)
+        if (L[i].startsWith('> ')) return L[i].slice(2).trim();
+    return '';
 }}
 
-async function sendMessage() {{
-    const text = editableInput.innerText.trim();
-    if (!text || isSending) return;
-    isSending = true;
-    editableInput.innerText = '';
-    editableInput.focus();
-   
-    addMessageToUI('user', text);
-   
-    const assistantDiv = document.createElement('div');
-    assistantDiv.className = 'msg assistant';
-    assistantDiv.textContent = '~ ';
-    manuscript.appendChild(assistantDiv);
-   
-    window.scrollTo(0, document.body.scrollHeight);
-   
+function add(t) {{
+    s.innerText += t;
+    window.scrollTo(0,document.body.scrollHeight);
+}}
+
+async function send() {{
+    if (busy) return;
+    let m = last();
+    if (!m) return;
+
+    busy = true;
+    add("\\n~ ");
+
     try {{
-        const res = await fetch('/chat', {{ method: 'POST', headers: {{'Content-Type': 'application/json'}}, body: JSON.stringify({{message: text}}) }});
-        if (!res.ok) throw new Error('Chat failed');
-        const reader = res.body.getReader();
-        const decoder = new TextDecoder();
-        let fullResponse = '';
-        while (true) {{
-            const {{done, value}} = await reader.read();
+        let r = await fetch('/chat', {{
+            method:'POST',
+            headers:{{'Content-Type':'application/json'}},
+            body:JSON.stringify({{message:m}})
+        }});
+
+        let rd = r.body.getReader();
+        let dec = new TextDecoder();
+
+        while(true) {{
+            let {{done,value}} = await rd.read();
             if (done) break;
-            const chunk = decoder.decode(value, {{stream: true}});
-            fullResponse += chunk;
-            assistantDiv.textContent = '~ ' + fullResponse;
-            window.scrollTo(0, document.body.scrollHeight);
+            add(dec.decode(value,{{stream:true}}));
         }}
-       
-        const sep = document.createElement('div');
-        sep.className = 'separator';
-        sep.textContent = '***';
-        manuscript.appendChild(sep);
-       
-        refreshCSS();
-    }} catch (e) {{ console.error(e); }} finally {{
-        isSending = false;
-        editableInput.focus();
+
+        add("\\n***\\n> ");
+    }} catch {{
+        add("[error]");
     }}
+
+    busy = false;
 }}
 
-editableInput.addEventListener('keydown', (e) => {{
-    if (e.key === 'Enter' && !e.shiftKey) {{
+s.addEventListener('keydown', e=>{{
+    if (e.key==='Enter') {{
         e.preventDefault();
-        sendMessage();
+        send();
     }}
-}});
-
-document.addEventListener('mousedown', (e) => {{
-    if (e.target.closest('#manuscript') || e.target.closest('#editable-input') || e.target.closest('#input-line')) return;
-    setTimeout(() => editableInput.focus(), 10);
-}});
-
-document.addEventListener('keydown', (e) => {{
-    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'a') {{
-        e.preventDefault();
-        const selection = window.getSelection();
-        const range = document.createRange();
-        const header = document.getElementById('manuscript-header');
-        const manuscriptEl = document.getElementById('manuscript');
-        range.setStartBefore(header);
-        range.setEndAfter(manuscriptEl.lastChild || manuscriptEl);
-        selection.removeAllRanges();
-        selection.addRange(range);
-    }}
-}});
-
-document.addEventListener('copy', (e) => {{
-    const selection = window.getSelection();
-    e.clipboardData.setData('text/plain', selection.toString());
-    e.preventDefault();
 }});
 </script>
-</body>
-</html>
+
+</body></html>
 """
 
-# === остальная часть кода (tools, routes) ===
-def parse_and_execute_tools(content: str):
-    changed = False
-    cmd_pattern = r'\[CMD\](.*?)\[/CMD\]'
-    for match in re.finditer(cmd_pattern, content, re.DOTALL):
-        cmd = match.group(1).strip()
+def tools(t):
+    for m in re.findall(r'\[CMD\](.*?)\[/CMD\]', t, re.DOTALL):
         try:
-            result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=30, cwd=VOIDS_DIR)
-            output = result.stdout + result.stderr
-            if not output: output = "(no output)"
-            content = content.replace(match.group(0), f"[executed: {cmd}]\n{output}")
+            r = subprocess.run(m, shell=True, capture_output=True, text=True, cwd=VOIDS)
+            t = t.replace(f"[CMD]{m}[/CMD]", r.stdout+r.stderr or "(no output)")
         except Exception as e:
-            content = content.replace(match.group(0), f"[error: {cmd}]\n{str(e)}")
-    
-    css_pattern = r'\[CSS\](.*?)\[/CSS\]'
-    for match in re.finditer(css_pattern, content, re.DOTALL):
-        css = match.group(1).strip()
+            t = t.replace(f"[CMD]{m}[/CMD]", str(e))
+    for m in re.findall(r'\[CSS\](.*?)\[/CSS\]', t, re.DOTALL):
         try:
-            CSS_FILE.write_text(css, encoding='utf-8')
-            content = content.replace(match.group(0), "[style applied]")
-            changed = True
+            CSS.write_text(m, encoding="utf-8")
+            t = t.replace(f"[CSS]{m}[/CSS]", "[style]")
         except Exception as e:
-            content = content.replace(match.group(0), f"[css error: {str(e)}]")
-    return content, changed
+            t = t.replace(f"[CSS]{m}[/CSS]", str(e))
+    return t
 
 @app.route('/')
-def index(): return HTML
-
-@app.route('/css')
-def get_css():
-    if CSS_FILE.exists(): return Response(CSS_FILE.read_text(), mimetype='text/css')
-    return '', 200
-
-@app.route('/memory')
-def get_memory(): return jsonify(memory)
+def i(): return HTML
 
 @app.route('/chat', methods=['POST'])
-def chat():
-    data = request.get_json()
-    user_msg = data.get('message', '').strip()
-    if not user_msg: return jsonify({'error': 'empty'}), 400
-    
-    memory.append({"role": "user", "content": user_msg})
-    save_memory()
-    log_to_file('user', user_msg)
+def c():
+    msg = request.json.get('message','').strip()
+    if not msg: return ''
 
-    def generate():
-        full_response = ""
-        css_changed = False
-        try:
-            for chunk in agent.chat_stream(memory):
-                try: clean_chunk = chunk.encode('latin-1').decode('utf-8')
-                except: clean_chunk = chunk
-                full_response += clean_chunk
-                yield clean_chunk
-            if '[CMD]' in full_response or '[CSS]' in full_response:
-                full_response, css_changed = parse_and_execute_tools(full_response)
-            memory.append({"role": "assistant", "content": full_response})
-            save_memory()
-            log_to_file('assistant', full_response)
-            if css_changed: yield "\n\n✨ room updated"
-        except Exception as e:
-            error_msg = f"[error]: {str(e)}"
-            memory.append({"role": "assistant", "content": error_msg})
-            save_memory()
-            log_to_file('assistant', error_msg)
-            yield error_msg
+    memory.append({"role":"user","content":msg})
+    save()
+    log(msg)
 
-    return Response(stream_with_context(generate()), mimetype='text/plain; charset=utf-8')
+    def g():
+        full=""
+        for ch in agent.stream(memory):
+            full+=ch
+            yield ch
+        if "[CMD]" in full or "[CSS]" in full:
+            full = tools(full)
+        memory.append({"role":"assistant","content":full})
+        save()
+        log(full)
 
-if __name__ == '__main__':
-    host = os.getenv('HOST', '0.0.0.0')
-    port = int(os.getenv('PORT', 42424))
-    print(f"VOID :: http://{host}:{port}")
-    app.run(host=host, port=port, debug=False, threaded=True)
+    return Response(stream_with_context(g()), mimetype='text/plain')
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=42424, threaded=True)
 EOF
 
-# Service
 cat > /etc/systemd/system/void.service << EOF
 [Unit]
-Description=Void AI Agent
+Description=Void
 After=network.target
+
 [Service]
-Type=simple
 User=root
 WorkingDirectory=/opt/void
 EnvironmentFile=/opt/void/.env
-Environment="PORT=42424"
 ExecStart=/opt/void/venv/bin/python3 /opt/void/void.py
 Restart=always
-RestartSec=10
+
 [Install]
 WantedBy=multi-user.target
 EOF
 
 systemctl daemon-reload
-systemctl enable void.service
-systemctl start void.service
+systemctl enable void
+systemctl restart void
 
-sleep 2
-if systemctl is-active --quiet void.service; then
-    IP=$(hostname -I | awk '{print $1}')
-    echo "✅ Шапка возвращена, расстояние минимальное, > и ~ копируются"
-    echo "🌐 http://$IP:42424"
-else
-    journalctl -u void.service -n 30 --no-pager
-    exit 1
-fi
+IP=$(hostname -I | awk '{print $1}')
+echo "http://$IP:42424"
+```
