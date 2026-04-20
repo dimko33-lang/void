@@ -267,6 +267,7 @@ function applyHistoryState(index) {
     }
 }
 
+// Слушатель для всего окна (основной)
 window.addEventListener('keydown', (e) => {
     if (e.ctrlKey && e.key === 'z' && !e.shiftKey) {
         e.preventDefault();
@@ -278,6 +279,16 @@ window.addEventListener('keydown', (e) => {
         if (cssHistoryIndex < cssHistory.length - 1) {
             applyHistoryState(cssHistoryIndex + 1);
         }
+    }
+});
+
+// ДОПОЛНИТЕЛЬНЫЙ слушатель специально для поля ввода.
+// Он "отпугивает" стандартное поведение браузера.
+input.addEventListener('keydown', (e) => {
+    if ((e.ctrlKey && e.key === 'z' && !e.shiftKey) || (e.ctrlKey && e.key === 'y')) {
+        e.preventDefault(); // <-- ВОТ ЭТО КЛЮЧЕВАЯ СТРОКА
+        // Мы не вызываем applyHistoryState здесь, потому что это уже сделает слушатель на window.
+        // Нам нужно только ОТМЕНИТЬ стандартное действие браузера для поля ввода.
     }
 });
 
