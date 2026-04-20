@@ -124,15 +124,15 @@ html, body {{
     font-weight: 400; 
     -webkit-font-smoothing: antialiased; 
     line-height: 1.6;
+    margin: 0 !important;
+    padding: 0 !important;
+    height: 100vh;
 }}
-body {{ padding: 0 8px 8px 8px; min-height: 100vh; }}   /* отступ только снизу */
-
 #manuscript {{
     white-space: pre-wrap;
     word-break: break-word;
     font-size: 14px;
-    margin-top: 0;
-    padding-top: 0;
+    padding: 8px 8px 0 8px;
     -webkit-user-select: text !important;
     -moz-user-select: text !important;
     user-select: text !important;
@@ -152,6 +152,7 @@ body {{ padding: 0 8px 8px 8px; min-height: 100vh; }}   /* отступ толь
     display: flex;
     align-items: center;
     margin-top: 8px;
+    padding: 0 8px;
     color: #5a5a5a;
 }}
 .prompt {{ margin-right: 8px; user-select: none; }}
@@ -189,7 +190,7 @@ function refreshCSS() {{ document.getElementById('dynamic-css').href = '/css?' +
 function addMessageToUI(role, content) {{
     const msgDiv = document.createElement('div');
     msgDiv.className = `msg ${{role}}`;
-    msgDiv.textContent = content;                 // ← только голый текст, префикс добавляет CSS
+    msgDiv.textContent = content;
     manuscript.appendChild(msgDiv);
    
     const sep = document.createElement('div');
@@ -276,7 +277,6 @@ document.addEventListener('copy', (e) => {{
 </html>
 """
 
-# === остальная часть кода без изменений ===
 def parse_and_execute_tools(content: str):
     changed = False
     cmd_pattern = r'\[CMD\](.*?)\[/CMD\]'
@@ -377,7 +377,7 @@ systemctl start void.service
 sleep 2
 if systemctl is-active --quiet void.service; then
     IP=$(hostname -I | awk '{print $1}')
-    echo "✅ Теперь текст начинается прямо от самого верха окна"
+    echo "✅ Теперь текст начинается прямо от верхнего края окна"
     echo "🌐 http://$IP:42424"
 else
     journalctl -u void.service -n 30 --no-pager
