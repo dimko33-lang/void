@@ -1,7 +1,39 @@
+#!/bin/bash
+set -e
+
+if [ "$EUID" -ne 0 ]; then
+    echo "Error: run as root"
+    exit 1
+fi
+
+KEY="$1"
+if [ -z "$KEY" ]; then
+    echo "Usage: curl -s URL | sudo bash -s -- \"YOUR-KEY\""
+    exit 1
+fi
+
+systemctl stop void 2>/dev/null || true
+systemctl disable void 2>/dev/null || true
+rm -f /etc/systemd/system/void.service
+rm -rf /opt/void
+systemctl daemon-reload
+
+apt update
+apt install -y python3 python3-pip python3-venv
+
+mkdir -p /opt/void/voids
+cd /opt/void
+
+echo "KIMI_API_KEY=$KEY" > .env
+chmod 600 .env
+
+python3 -m venv venv
+source venv/bin/activate
+pip install --upgrade pip
+pip install flask requests python-dotenv
+
+cat > void.py << 'EOF'
 #!/usr/bin/env python3
-"""
-VOID — Kimi K2.5
-"""
 import json
 import os
 import re
@@ -74,6 +106,8 @@ app = Flask(__name__)
 
 MODEL_NAME = "kimi-k2.5"
 PROVIDER = "Moonshot"
+THINKING = "enabled"
+MEMORY_STATUS = "on"
 
 HTML = f"""<!DOCTYPE html><html lang="ru"><head>
 <meta charset="UTF-8">
@@ -98,8 +132,8 @@ html, body {{
 }}
 
 #manuscript {{
-    white-space:pre-wrap;
-    word-break:break-word;
+    white-space: pre-wrap;
+    word-break: break-word;
     line-height:1.6;
     margin:0;
     padding:0;
@@ -121,7 +155,7 @@ html, body {{
 }}
 
 .prompt {{
-    margin-right:6px;
+    margin-right:8px;
 }}
 
 #editable-input {{
@@ -137,7 +171,7 @@ html, body {{
 <link rel="stylesheet" href="/css" id="dynamic-css">
 </head>
 <body>
-<div id="manuscript-header">VOID · {MODEL_NAME} ({PROVIDER}) · {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</div>
+<div id="manuscript-header">VOID · {MODEL_NAME} ({PROVIDER}) · thinking: {THINKING} · memory: {MEMORY_STATUS} · {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</div>
 <div id="manuscript"><div class="separator">***</div></div>
 <div id="input-line"><span class="prompt">></span><div id="editable-input" contenteditable="true"></div></div>
 
@@ -146,15 +180,16 @@ const manuscript = document.getElementById('manuscript');
 const editableInput = document.getElementById('editable-input');
 let isSending = false;
 
-function refreshCSS() {{
+function refreshCSS() {
     document.getElementById('dynamic-css').href = '/css?' + Date.now();
-}}
+}
 
-function addMessageToUI(role, content) {{
-    const msg = document.createElement('div');
-    msg.className = 'msg';
-    msg.textContent = (role === 'user' ? '> ' : '~ ') + content;
-    manuscript.appendChild(msg);
+function addMessageToUI(role, content) {
+    const msgDiv = document.createElement('div');
+    msgDiv.className = 'msg';
+    const prefix = role === 'user' ? '> ' : '~ ';
+    msgDiv.textContent = prefix + content;
+    manuscript.appendChild(msgDiv);
 
     const sep = document.createElement('div');
     sep.className = 'separator';
@@ -162,38 +197,40 @@ function addMessageToUI(role, content) {{
     manuscript.appendChild(sep);
 
     window.scrollTo(0, document.body.scrollHeight);
-}}
+}
 
-async function sendMessage() {{
+async function sendMessage() {
     const text = editableInput.innerText.trim();
     if (!text || isSending) return;
 
     isSending = true;
     editableInput.innerText = '';
+    editableInput.focus();
+
     addMessageToUI('user', text);
 
-    const assistant = document.createElement('div');
-    assistant.className = 'msg';
-    assistant.textContent = '~ ';
-    manuscript.appendChild(assistant);
+    const assistantDiv = document.createElement('div');
+    assistantDiv.className = 'msg';
+    assistantDiv.textContent = '~ ';
+    manuscript.appendChild(assistantDiv);
 
-    const res = await fetch('/chat', {{
-        method:'POST',
-        headers:{{'Content-Type':'application/json'}},
-        body:JSON.stringify({{message:text}})
-    }});
+    const res = await fetch('/chat', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({message: text})
+    });
 
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
-    let full = '';
+    let fullResponse = '';
 
-    while (true) {{
-        const {{done, value}} = await reader.read();
+    while (true) {
+        const {done, value} = await reader.read();
         if (done) break;
-        const chunk = decoder.decode(value, {{stream:true}});
-        full += chunk;
-        assistant.textContent = '~ ' + full;
-    }}
+        const chunk = decoder.decode(value, {stream: true});
+        fullResponse += chunk;
+        assistantDiv.textContent = '~ ' + fullResponse;
+    }
 
     const sep = document.createElement('div');
     sep.className = 'separator';
@@ -203,14 +240,14 @@ async function sendMessage() {{
     refreshCSS();
     isSending = false;
     editableInput.focus();
-}}
+}
 
-editableInput.addEventListener('keydown', e => {{
-    if (e.key === 'Enter' && !e.shiftKey) {{
+editableInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault();
         sendMessage();
-    }}
-}});
+    }
+});
 </script>
 </body></html>"""
 
@@ -221,8 +258,8 @@ def parse_and_execute_tools(content: str):
         cmd = match.group(1).strip()
         try:
             result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=30, cwd=VOIDS_DIR)
-            out = result.stdout + result.stderr or "(no output)"
-            content = content.replace(match.group(0), f"[executed]\n{out}")
+            output = result.stdout + result.stderr or "(no output)"
+            content = content.replace(match.group(0), f"[executed]\n{output}")
         except Exception as e:
             content = content.replace(match.group(0), f"[error]\n{e}")
 
@@ -240,39 +277,69 @@ def parse_and_execute_tools(content: str):
 def index(): return HTML
 
 @app.route('/css')
-def css():
+def get_css():
     if CSS_FILE.exists():
         return Response(CSS_FILE.read_text(), mimetype='text/css')
     return '', 200
 
 @app.route('/chat', methods=['POST'])
 def chat():
-    user_msg = request.get_json().get('message', '').strip()
+    data = request.get_json()
+    user_msg = data.get('message', '').strip()
     if not user_msg:
         return '', 400
 
-    memory.append({"role":"user","content":user_msg})
+    memory.append({"role": "user", "content": user_msg})
     save_memory()
     log_to_file('user', user_msg)
 
     def generate():
-        full = ""
+        full_response = ""
         css_changed = False
 
         for chunk in agent.chat_stream(memory):
-            full += chunk
+            full_response += chunk
             yield chunk
 
-        if '[CMD]' in full or '[CSS]' in full:
-            full, css_changed = parse_and_execute_tools(full)
+        if '[CMD]' in full_response or '[CSS]' in full_response:
+            full_response, css_changed = parse_and_execute_tools(full_response)
 
-        memory.append({"role":"assistant","content":full})
+        memory.append({"role": "assistant", "content": full_response})
         save_memory()
-        log_to_file('assistant', full)
+        log_to_file('assistant', full_response)
 
         if css_changed:
             yield "\n\nupdated"
 
-    return Response(stream_with_context(generate()), mimetype='text/plain')
+    return Response(stream_with_context(generate()), mimetype='text/plain; charset=utf-8')
 
-app.run("0.0.0.0", 42424)
+if __name__ == '__main__':
+    app.run("0.0.0.0", 42424)
+EOF
+
+cat > /etc/systemd/system/void.service << EOF
+[Unit]
+Description=Void AI Agent
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/void
+EnvironmentFile=/opt/void/.env
+Environment="PORT=42424"
+ExecStart=/opt/void/venv/bin/python3 /opt/void/void.py
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+systemctl daemon-reload
+systemctl enable void.service
+systemctl start void.service
+
+sleep 2
+IP=$(hostname -I | awk '{print $1}')
+echo "http://$IP:42424"
