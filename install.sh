@@ -50,7 +50,6 @@ import re
 import subprocess
 import shlex
 from pathlib import Path
-from typing import List, Dict, Optional, Generator
 
 import requests
 from dotenv import load_dotenv
@@ -89,7 +88,7 @@ class VoidAgent:
         self.url = "https://api.moonshot.ai/v1/chat/completions"
         self.timeout = 120
     
-    def _call_llm_stream(self, messages: List[Dict]) -> Generator[str, None, None]:
+    def _call_llm_stream(self, messages):
         headers = {"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"}
         payload = {"model": self.model, "messages": messages, "stream": True}
         resp = requests.post(self.url, headers=headers, json=payload, timeout=self.timeout, stream=True)
@@ -108,7 +107,7 @@ class VoidAgent:
                 except:
                     continue
     
-    def execute_command(self, command: str) -> Dict:
+    def execute_command(self, command: str):
         try:
             result = subprocess.run(shlex.split(command), capture_output=True, text=True, timeout=30, cwd=VOIDS_DIR)
             output = result.stdout + result.stderr
@@ -118,7 +117,7 @@ class VoidAgent:
         except Exception as e:
             return {"success": False, "output": str(e), "exit_code": -1}
     
-    def chat_stream(self, messages: List[Dict]) -> Generator[str, None, None]:
+    def chat_stream(self, messages):
         yield from self._call_llm_stream(messages)
 
 agent = VoidAgent()
@@ -180,7 +179,7 @@ function addMessageToUI(role, content, idx) {
     let lastClick = 0;
     wrap.onclick = (e) => {
         const now = Date.now();
-        if (now - lastClick < 200) {
+        if (now - lastClick < 300) {
             e.stopPropagation();
             fetch('/delete', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({index: parseInt(wrap.dataset.index)}) }).then(res => res.ok && loadMemory());
         }
@@ -240,6 +239,58 @@ async function sendMessage() {
 }
 input.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); } });
 loadMemory();
+// --- UNDO / REDO для CSS ---
+let cssHistory = [];
+let cssHistoryIndex = -1;
+const MAX_HISTORY = 100;
+function saveCSSState(cssText) {
+    if (cssHistoryIndex < cssHistory.length - 1) {
+        cssHistory = cssHistory.slice(0, cssHistoryIndex + 1);
+    }
+    cssHistory.push(cssText);
+    if (cssHistory.length > MAX_HISTORY) {
+        cssHistory.shift();
+    } else {
+        cssHistoryIndex++;
+    }
+}
+document.addEventListener('keydown', (e) => {
+    if (e.ctrlKey && e.key === 'z' && !e.shiftKey) {
+        e.preventDefault();
+        if (cssHistoryIndex > 0) {
+            cssHistoryIndex--;
+            const prevCSS = cssHistory[cssHistoryIndex];
+            fetch('/css', { method: 'POST', body: prevCSS }).then(() => refreshCSS());
+        }
+    } else if (e.ctrlKey && (e.key === 'y' || (e.key === 'Z' && e.shiftKey))) {
+        e.preventDefault();
+        if (cssHistoryIndex < cssHistory.length - 1) {
+            cssHistoryIndex++;
+            const nextCSS = cssHistory[cssHistoryIndex];
+            fetch('/css', { method: 'POST', body: nextCSS }).then(() => refreshCSS());
+        }
+    }
+});
+const originalFetch = window.fetch;
+window.fetch = async function(...args) {
+    const res = await originalFetch.apply(this, args);
+    if (args[0] === '/css' && args[1]?.method === 'POST') {
+        const cssText = args[1].body;
+        setTimeout(() => saveCSSState(cssText), 100);
+    }
+    return res;
+};
+(async function initHistory() {
+    try {
+        const res = await fetch('/css');
+        const initialCSS = await res.text();
+        if (initialCSS) {
+            cssHistory = [initialCSS];
+            cssHistoryIndex = 0;
+        }
+    } catch (e) {}
+})();
+// --- конец UNDO/REDO ---
 input.focus();
 </script>
 </body>
@@ -271,10 +322,18 @@ def parse_and_execute_tools(content: str):
 
 @app.route('/')
 def index(): return HTML
-@app.route('/css')
-def get_css():
-    if CSS_FILE.exists(): return Response(CSS_FILE.read_text(), mimetype='text/css')
-    return '', 200
+@app.route('/css', methods=['GET', 'POST'])
+def handle_css():
+    if request.method == 'POST':
+        css_data = request.get_data(as_text=True)
+        try:
+            CSS_FILE.write_text(css_data, encoding='utf-8')
+            return '', 200
+        except Exception as e:
+            return str(e), 500
+    else:
+        if CSS_FILE.exists(): return Response(CSS_FILE.read_text(), mimetype='text/css')
+        return '', 200
 @app.route('/memory')
 def get_memory(): return jsonify(memory)
 @app.route('/chat', methods=['POST'])
