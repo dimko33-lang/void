@@ -125,14 +125,12 @@ html, body {{
     -webkit-font-smoothing: antialiased; 
     line-height: 1.6;
     margin: 0 !important;
-    padding: 0 !important;
-    height: 100vh;
+    padding: 8px 8px 8px 8px !important;   /* минимальный отступ сверху 8px */
 }}
 #manuscript {{
     white-space: pre-wrap;
     word-break: break-word;
     font-size: 14px;
-    padding: 8px 8px 0 8px;
     -webkit-user-select: text !important;
     -moz-user-select: text !important;
     user-select: text !important;
@@ -152,7 +150,6 @@ html, body {{
     display: flex;
     align-items: center;
     margin-top: 8px;
-    padding: 0 8px;
     color: #5a5a5a;
 }}
 .prompt {{ margin-right: 8px; user-select: none; }}
@@ -190,7 +187,8 @@ function refreshCSS() {{ document.getElementById('dynamic-css').href = '/css?' +
 function addMessageToUI(role, content) {{
     const msgDiv = document.createElement('div');
     msgDiv.className = `msg ${{role}}`;
-    msgDiv.textContent = content;
+    const prefix = role === 'user' ? '> ' : '~ ';
+    msgDiv.textContent = prefix + content;
     manuscript.appendChild(msgDiv);
    
     const sep = document.createElement('div');
@@ -212,7 +210,7 @@ async function sendMessage() {{
    
     const assistantDiv = document.createElement('div');
     assistantDiv.className = 'msg assistant';
-    assistantDiv.textContent = '';
+    assistantDiv.textContent = '~ ';
     manuscript.appendChild(assistantDiv);
    
     window.scrollTo(0, document.body.scrollHeight);
@@ -228,7 +226,7 @@ async function sendMessage() {{
             if (done) break;
             const chunk = decoder.decode(value, {{stream: true}});
             fullResponse += chunk;
-            assistantDiv.textContent = fullResponse;
+            assistantDiv.textContent = '~ ' + fullResponse;
             window.scrollTo(0, document.body.scrollHeight);
         }}
        
@@ -277,6 +275,7 @@ document.addEventListener('copy', (e) => {{
 </html>
 """
 
+# === остальная часть (routes, parse_and_execute_tools и т.д.) ===
 def parse_and_execute_tools(content: str):
     changed = False
     cmd_pattern = r'\[CMD\](.*?)\[/CMD\]'
@@ -353,6 +352,7 @@ if __name__ == '__main__':
     app.run(host=host, port=port, debug=False, threaded=True)
 EOF
 
+# Service
 cat > /etc/systemd/system/void.service << EOF
 [Unit]
 Description=Void AI Agent
@@ -377,7 +377,7 @@ systemctl start void.service
 sleep 2
 if systemctl is-active --quiet void.service; then
     IP=$(hostname -I | awk '{print $1}')
-    echo "✅ Теперь текст начинается прямо от верхнего края окна"
+    echo "✅ Готово! Теперь сверху ровно 8 пикселей, префиксы > и ~ копируются"
     echo "🌐 http://$IP:42424"
 else
     journalctl -u void.service -n 30 --no-pager
