@@ -51,6 +51,7 @@ import subprocess
 import shlex
 from pathlib import Path
 from typing import List, Dict, Optional, Generator
+from datetime import datetime
 
 import requests
 from dotenv import load_dotenv
@@ -85,7 +86,6 @@ class VoidAgent:
     def __init__(self):
         self.api_key = os.getenv("KIMI_API_KEY", "").strip()
         self.model = "kimi-k2.5"
-        # === ПРАВИЛЬНЫЙ МЕЖДУНАРОДНЫЙ URL ===
         self.url = "https://api.moonshot.ai/v1/chat/completions"
         self.timeout = 120
     
@@ -124,121 +124,206 @@ class VoidAgent:
 agent = VoidAgent()
 app = Flask(__name__)
 
-HTML = """
+# Настройки для гримуара
+MODEL_NAME = "kimi-k2.5"
+PROVIDER = "Moonshot"
+THINKING = "enabled"
+MEMORY_STATUS = "on"
+
+HTML = f"""
 <!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes">
-<title>void</title>
+<title>VOID · Гримуар</title>
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,400;0,500;1,400;1,500&display=swap');
-* { box-sizing: border-box; }
-html, body { margin: 0; padding: 0; height: 100dvh; }
-body { background: #000000; color: #fff; font-family: 'Inter', sans-serif; font-weight: 400; overflow: hidden; -webkit-font-smoothing: antialiased; }
-::selection { background: rgba(255, 255, 255, 0.08); color: inherit; }
-#chatMessages { position: fixed; top: 0; left: 0; right: 0; bottom: 50px; overflow-y: auto; padding: 16px 18px; z-index: 2; }
-.msgWrap { margin-bottom: 2px; position: relative; cursor: default; user-select: text; -webkit-user-select: text; }
-.msg { margin: 0; letter-spacing: 0.01em; line-height: 1.6; word-break: break-word; white-space: pre-wrap; font-size: 15px; padding: 6px 0; }
-.msg.assistant { color: #e8e8e8; }
-.msg.user { color: #888888; }
-#messageInput { position: fixed; bottom: 16px; left: 18px; right: 18px; width: auto; background: transparent; color: #cccccc; border: none; outline: none; font-family: 'Inter', sans-serif; font-size: 15px; padding: 0; caret-color: rgba(255, 255, 255, 0.3); }
-#messageInput::placeholder { content: ""; opacity: 0; }
-::-webkit-scrollbar { width: 6px; }
-::-webkit-scrollbar-track { background: #000; }
-::-webkit-scrollbar-thumb { background: #2a2a2a; border-radius: 3px; }
-* { scrollbar-width: thin; scrollbar-color: #2a2a2a #000; }
-@media (max-width: 720px) { .msg { font-size: 14px; } #chatMessages { padding: 14px 14px; } #messageInput { left: 14px; right: 14px; font-size: 14px; } }
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap');
+* {{ box-sizing: border-box; }}
+html, body {{ margin: 0; padding: 0; background: #000; color: #e0e0e0; font-family: 'JetBrains Mono', monospace; font-weight: 400; -webkit-font-smoothing: antialiased; }}
+::selection {{ background: rgba(255, 255, 255, 0.08); color: inherit; }}
+body {{ display: flex; flex-direction: column; min-height: 100vh; padding: 20px 24px; }}
+#manuscript-header {{
+    color: #6a6a6a;
+    font-size: 13px;
+    border-bottom: 1px solid #2a2a2a;
+    padding-bottom: 12px;
+    margin-bottom: 24px;
+    user-select: none;
+}}
+#manuscript {{
+    flex-grow: 1;
+    white-space: pre-wrap;
+    word-break: break-word;
+    line-height: 1.7;
+    font-size: 14px;
+}}
+.msg {{
+    margin-bottom: 16px;
+}}
+.msg.user {{
+    color: #9a9a9a;
+}}
+.msg.assistant {{
+    color: #d0d0d0;
+}}
+.msg.user::before {{
+    content: "> ";
+    color: #5a5a5a;
+}}
+.msg.assistant::before {{
+    content: "~ ";
+    color: #5a5a5a;
+}}
+.separator {{
+    color: #3a3a3a;
+    margin: 24px 0;
+    user-select: none;
+}}
+#scribe-line {{
+    display: flex;
+    align-items: center;
+    border-top: 1px solid #2a2a2a;
+    padding-top: 16px;
+    margin-top: 24px;
+    color: #5a5a5a;
+}}
+.prompt {{
+    margin-right: 8px;
+    user-select: none;
+}}
+#messageInput {{
+    background: transparent;
+    border: none;
+    color: #e0e0e0;
+    font-family: inherit;
+    font-size: 14px;
+    flex-grow: 1;
+    outline: none;
+    caret-color: #8a8a8a;
+    padding: 0;
+}}
+#messageInput::placeholder {{ opacity: 0; }}
 </style>
 <link rel="stylesheet" href="/css" id="dynamic-css">
 </head>
 <body>
-<div id="chatMessages"></div>
-<input type="text" id="messageInput" autofocus autocomplete="off" placeholder=" ">
+<div id="manuscript-header">VOID · {MODEL_NAME} ({PROVIDER}) · thinking: {THINKING} · memory: {MEMORY_STATUS}<br>{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</div>
+<div id="manuscript"></div>
+<div id="scribe-line">
+    <span class="prompt">></span>
+    <input type="text" id="messageInput" autofocus autocomplete="off" placeholder=" ">
+</div>
 <script>
-const chatDiv = document.getElementById('chatMessages');
+const manuscript = document.getElementById('manuscript');
 const input = document.getElementById('messageInput');
 let isSending = false;
-let currentAssistantMsg = null;
-function refreshCSS() { document.getElementById('dynamic-css').href = '/css?' + Date.now(); }
-async function loadMemory() {
-    try {
+let currentAssistantBlock = null;
+
+function refreshCSS() {{ document.getElementById('dynamic-css').href = '/css?' + Date.now(); }}
+
+async function loadMemory() {{
+    try {{
         const res = await fetch('/memory');
         const data = await res.json();
-        const wasAtBottom = chatDiv.scrollHeight - chatDiv.scrollTop - chatDiv.clientHeight < 10;
-        chatDiv.innerHTML = '';
-        data.forEach((msg, idx) => { addMessageToUI(msg.role, msg.content, idx); });
-        if (wasAtBottom) chatDiv.scrollTop = chatDiv.scrollHeight;
-    } catch (e) { console.error('Failed to load memory:', e); }
-}
-function addMessageToUI(role, content, idx) {
-    const wrap = document.createElement('div');
-    wrap.className = 'msgWrap';
-    wrap.dataset.index = idx;
-    wrap.style.userSelect = 'text';
-    wrap.style.webkitUserSelect = 'text';
-    let lastClick = 0;
-    wrap.onclick = (e) => {
-        const now = Date.now();
-        if (now - lastClick < 230) {
-            e.stopPropagation();
-            fetch('/delete', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({index: parseInt(wrap.dataset.index)}) }).then(res => res.ok && loadMemory());
-        }
-        lastClick = now;
-    };
+        manuscript.innerHTML = '';
+        data.forEach((msg, idx) => {{ addMessageToUI(msg.role, msg.content, idx); }});
+        window.scrollTo(0, document.body.scrollHeight);
+    }} catch (e) {{ console.error('Failed to load memory:', e); }}
+}}
+
+function addMessageToUI(role, content, idx) {{
     const msgDiv = document.createElement('div');
     msgDiv.className = `msg ${role}`;
     msgDiv.textContent = content;
+    msgDiv.dataset.index = idx;
     msgDiv.style.userSelect = 'text';
     msgDiv.style.webkitUserSelect = 'text';
-    wrap.appendChild(msgDiv);
-    chatDiv.appendChild(wrap);
-}
-function updateLastMessage(content) { if (currentAssistantMsg) currentAssistantMsg.querySelector('.msg').textContent = content; }
-async function sendMessage() {
+    
+    let lastClick = 0;
+    msgDiv.onclick = (e) => {{
+        const now = Date.now();
+        if (now - lastClick < 230) {{
+            e.stopPropagation();
+            fetch('/delete', {{ method: 'POST', headers: {{'Content-Type': 'application/json'}}, body: JSON.stringify({{index: parseInt(msgDiv.dataset.index)}}) }}).then(res => res.ok && loadMemory());
+        }}
+        lastClick = now;
+    }};
+    
+    manuscript.appendChild(msgDiv);
+    
+    if (role === 'assistant') {{
+        const sep = document.createElement('div');
+        sep.className = 'separator';
+        sep.textContent = '***';
+        sep.style.userSelect = 'none';
+        manuscript.appendChild(sep);
+    }}
+}}
+
+function updateLastMessage(content) {{
+    if (currentAssistantBlock) {{
+        currentAssistantBlock.textContent = content;
+    }}
+}}
+
+async function sendMessage() {{
     const text = input.value.trim();
     if (!text || isSending) return;
     isSending = true;
     input.value = '';
     input.disabled = true;
+    
     addMessageToUI('user', text, -1);
-    const wrap = document.createElement('div');
-    wrap.className = 'msgWrap';
-    wrap.style.userSelect = 'text';
-    wrap.style.webkitUserSelect = 'text';
-    const msgDiv = document.createElement('div');
-    msgDiv.className = 'msg assistant';
-    msgDiv.textContent = '';
-    msgDiv.style.userSelect = 'text';
-    msgDiv.style.webkitUserSelect = 'text';
-    wrap.appendChild(msgDiv);
-    chatDiv.appendChild(wrap);
-    currentAssistantMsg = wrap;
-    chatDiv.scrollTop = chatDiv.scrollHeight;
-    try {
-        const res = await fetch('/chat', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({message: text}) });
+    
+    const assistantDiv = document.createElement('div');
+    assistantDiv.className = 'msg assistant';
+    assistantDiv.textContent = '';
+    assistantDiv.style.userSelect = 'text';
+    assistantDiv.style.webkitUserSelect = 'text';
+    manuscript.appendChild(assistantDiv);
+    currentAssistantBlock = assistantDiv;
+    
+    window.scrollTo(0, document.body.scrollHeight);
+    
+    try {{
+        const res = await fetch('/chat', {{ method: 'POST', headers: {{'Content-Type': 'application/json'}}, body: JSON.stringify({{message: text}}) }});
         if (!res.ok) throw new Error('Chat failed');
         const reader = res.body.getReader();
         const decoder = new TextDecoder();
         let fullResponse = '';
-        while (true) {
-            const {done, value} = await reader.read();
+        while (true) {{
+            const {{done, value}} = await reader.read();
             if (done) break;
-            const chunk = decoder.decode(value, {stream: true});
+            const chunk = decoder.decode(value, {{stream: true}});
             fullResponse += chunk;
             updateLastMessage(fullResponse);
-            chatDiv.scrollTop = chatDiv.scrollHeight;
-        }
-        await loadMemory();
+            window.scrollTo(0, document.body.scrollHeight);
+        }}
+        // Добавляем разделитель после полного ответа
+        const sep = document.createElement('div');
+        sep.className = 'separator';
+        sep.textContent = '***';
+        sep.style.userSelect = 'none';
+        manuscript.appendChild(sep);
+        
+        await loadMemory(); // Перезагружаем, чтобы проставить правильные индексы
         refreshCSS();
-    } catch (e) { console.error(e); } finally {
+    }} catch (e) {{ console.error(e); }} finally {{
         isSending = false;
         input.disabled = false;
         input.focus();
-        currentAssistantMsg = null;
-    }
-}
-input.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); } });
+        currentAssistantBlock = null;
+    }}
+}}
+
+input.addEventListener('keydown', (e) => {{
+    if (e.key === 'Enter' && !e.shiftKey) {{
+        e.preventDefault();
+        sendMessage();
+    }}
+}});
+
 loadMemory();
 input.focus();
 </script>
