@@ -141,13 +141,13 @@ HTML = f"""
 @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap');
 * {{ box-sizing: border-box; }}
 html, body {{ margin: 0; padding: 0; background: #000; color: #e0e0e0; font-family: 'JetBrains Mono', monospace; font-weight: 400; -webkit-font-smoothing: antialiased; }}
-body {{ padding: 24px; min-height: 100vh; }}
+body {{ padding: 24px; min-height: 100vh; user-select: text; }}
 #manuscript-header {{
     color: #5a5a5a;
     font-size: 11px;
     border-bottom: 1px solid #2a2a2a;
     padding-bottom: 8px;
-    margin-bottom: 24px;
+    margin-bottom: 16px;
     user-select: none;
 }}
 #manuscript {{
@@ -155,9 +155,11 @@ body {{ padding: 24px; min-height: 100vh; }}
     word-break: break-word;
     line-height: 1.7;
     font-size: 14px;
+    user-select: text;
 }}
 .msg {{
-    margin-bottom: 16px;
+    margin-bottom: 0;
+    user-select: text;
 }}
 .msg.user {{
     color: #9a9a9a;
@@ -176,13 +178,13 @@ body {{ padding: 24px; min-height: 100vh; }}
 .separator {{
     color: #2a2a2a;
     font-size: 12px;
-    margin: 16px 0;
+    margin: 0 0 0 0;
     user-select: text;
 }}
 #scribe-line {{
     display: flex;
     align-items: center;
-    margin-top: 24px;
+    margin-top: 0;
     color: #5a5a5a;
 }}
 .prompt {{
@@ -199,6 +201,7 @@ body {{ padding: 24px; min-height: 100vh; }}
     outline: none;
     caret-color: #8a8a8a;
     padding: 0;
+    user-select: text;
 }}
 #messageInput::placeholder {{ opacity: 0; }}
 </style>
@@ -224,14 +227,11 @@ function addMessageToUI(role, content) {{
     const msgDiv = document.createElement('div');
     msgDiv.className = `msg ${{role}}`;
     msgDiv.textContent = content;
-    msgDiv.style.userSelect = 'text';
-    msgDiv.style.webkitUserSelect = 'text';
     manuscript.appendChild(msgDiv);
     
     const sep = document.createElement('div');
     sep.className = 'separator';
     sep.textContent = '***';
-    sep.style.userSelect = 'text';
     manuscript.appendChild(sep);
     
     window.scrollTo(0, document.body.scrollHeight);
@@ -249,8 +249,6 @@ async function sendMessage() {{
     const assistantDiv = document.createElement('div');
     assistantDiv.className = 'msg assistant';
     assistantDiv.textContent = '';
-    assistantDiv.style.userSelect = 'text';
-    assistantDiv.style.webkitUserSelect = 'text';
     manuscript.appendChild(assistantDiv);
     
     window.scrollTo(0, document.body.scrollHeight);
@@ -273,7 +271,6 @@ async function sendMessage() {{
         const sep = document.createElement('div');
         sep.className = 'separator';
         sep.textContent = '***';
-        sep.style.userSelect = 'text';
         manuscript.appendChild(sep);
         
         refreshCSS();
@@ -294,8 +291,6 @@ input.addEventListener('keydown', (e) => {{
 document.body.addEventListener('click', () => {{
     input.focus();
 }});
-
-// Начальный разделитель уже в HTML
 </script>
 </body>
 </html>
