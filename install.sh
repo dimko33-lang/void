@@ -131,7 +131,7 @@ body {{ padding: 3px 9px 14px 9px; }}
 #manuscript-header {{
     color: #4a4a4a;
     font-size: 10px;
-    margin-bottom: 1px;
+    margin-bottom: 0;
     user-select: text;
     letter-spacing: 0.3px;
 }}
@@ -191,7 +191,7 @@ function refreshCSS() {{ document.getElementById('dynamic-css').href = '/css?' +
 
 function addMessageToUI(role, content) {{
     const msgDiv = document.createElement('div');
-    msgDiv.className = `msg ${role}`;
+    msgDiv.className = `msg \${{role}}`;
     const prefix = role === 'user' ? '> ' : '~ ';
     msgDiv.textContent = prefix + content;
     manuscript.appendChild(msgDiv);
