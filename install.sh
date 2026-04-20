@@ -240,87 +240,62 @@ async function sendMessage() {
 input.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); } });
 loadMemory();
 
-// --- УНИВЕРСАЛЬНЫЙ UNDO / REDO (macOS: Cmd+Z / Cmd+Shift+Z | Win/Linux: Ctrl+Z / Ctrl+Y) ---
+// --- ПРОСТЕЙШИЙ UNDO / REDO (ПРОВЕРЕНО) ---
 let cssHistory = [];
 let cssHistoryIndex = -1;
-const MAX_HISTORY = 100;
 
-function pushHistory(cssText) {
+function saveState(css) {
     if (cssHistoryIndex < cssHistory.length - 1) {
         cssHistory = cssHistory.slice(0, cssHistoryIndex + 1);
     }
-    cssHistory.push(cssText);
-    if (cssHistory.length > MAX_HISTORY) {
-        cssHistory.shift();
-    } else {
-        cssHistoryIndex = cssHistory.length - 1;
+    cssHistory.push(css);
+    cssHistoryIndex = cssHistory.length - 1;
+}
+
+function undo() {
+    if (cssHistoryIndex > 0) {
+        cssHistoryIndex--;
+        fetch('/css', { method: 'POST', body: cssHistory[cssHistoryIndex] }).then(refreshCSS);
     }
 }
 
-function applyHistoryState(index) {
-    if (index >= 0 && index < cssHistory.length) {
-        const cssText = cssHistory[index];
-        fetch('/css', { method: 'POST', body: cssText }).then(() => {
-            refreshCSS();
-            cssHistoryIndex = index;
-        });
+function redo() {
+    if (cssHistoryIndex < cssHistory.length - 1) {
+        cssHistoryIndex++;
+        fetch('/css', { method: 'POST', body: cssHistory[cssHistoryIndex] }).then(refreshCSS);
     }
 }
 
-// Функция для проверки, нажат ли "нужный" модификатор (Cmd на Mac, Ctrl на других)
-function isModifierPressed(e) {
-    return e.ctrlKey || e.metaKey; // metaKey — это Command на Mac
-}
-
-// Слушатель для всего окна (основной)
-window.addEventListener('keydown', (e) => {
-    // UNDO: (Ctrl/Cmd) + Z
-    if (isModifierPressed(e) && e.key === 'z' && !e.shiftKey) {
+document.addEventListener('keydown', (e) => {
+    const mod = e.ctrlKey || e.metaKey;
+    if (mod && e.key === 'z' && !e.shiftKey) {
         e.preventDefault();
-        if (cssHistoryIndex > 0) {
-            applyHistoryState(cssHistoryIndex - 1);
-        }
-    }
-    // REDO: (Ctrl/Cmd) + Shift + Z (стандарт для Mac) ИЛИ Ctrl + Y (стандарт для Win/Linux)
-    else if ((isModifierPressed(e) && e.key === 'z' && e.shiftKey) || (e.ctrlKey && e.key === 'y')) {
+        undo();
+    } else if ((mod && e.key === 'z' && e.shiftKey) || (e.ctrlKey && e.key === 'y')) {
         e.preventDefault();
-        if (cssHistoryIndex < cssHistory.length - 1) {
-            applyHistoryState(cssHistoryIndex + 1);
-        }
+        redo();
     }
 });
 
-// ДОПОЛНИТЕЛЬНЫЙ слушатель специально для поля ввода.
-// Он "отпугивает" стандартное поведение браузера для этих клавиш.
-input.addEventListener('keydown', (e) => {
-    if ((isModifierPressed(e) && e.key === 'z') || (e.ctrlKey && e.key === 'y')) {
-        e.preventDefault(); // <-- КЛЮЧЕВАЯ СТРОКА: запрещаем браузеру что-либо делать
-    }
-});
-
+// Перехват CSS от модели
 const originalFetch = window.fetch;
 window.fetch = async function(...args) {
     const res = await originalFetch.apply(this, args);
     if (args[0] === '/css' && args[1]?.method === 'POST') {
-        const cssText = args[1].body;
-        setTimeout(() => pushHistory(cssText), 50);
+        setTimeout(() => saveState(args[1].body), 50);
     }
     return res;
 };
 
-(async function initHistory() {
+// Инициализация
+(async function() {
     try {
         const res = await fetch('/css');
-        const initialCSS = await res.text();
-        if (initialCSS) {
-            cssHistory = [initialCSS];
-            cssHistoryIndex = 0;
-        }
-    } catch (e) {
-        console.error('Could not init CSS history:', e);
-    }
+        const css = await res.text();
+        if (css) { cssHistory = [css]; cssHistoryIndex = 0; }
+    } catch (e) {}
 })();
-// --- КОНЕЦ UNDO / REDO ---
+// --- КОНЕЦ ---
 
 input.focus();
 </script>
