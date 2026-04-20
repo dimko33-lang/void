@@ -240,7 +240,7 @@ async function sendMessage() {
 input.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); } });
 loadMemory();
 
-// --- ПРОСТОЙ И НАДЁЖНЫЙ UNDO / REDO (Ctrl+Z / Ctrl+Y) ---
+// --- УНИВЕРСАЛЬНЫЙ UNDO / REDO (macOS: Cmd+Z / Cmd+Shift+Z | Win/Linux: Ctrl+Z / Ctrl+Y) ---
 let cssHistory = [];
 let cssHistoryIndex = -1;
 const MAX_HISTORY = 100;
@@ -267,14 +267,22 @@ function applyHistoryState(index) {
     }
 }
 
+// Функция для проверки, нажат ли "нужный" модификатор (Cmd на Mac, Ctrl на других)
+function isModifierPressed(e) {
+    return e.ctrlKey || e.metaKey; // metaKey — это Command на Mac
+}
+
 // Слушатель для всего окна (основной)
 window.addEventListener('keydown', (e) => {
-    if (e.ctrlKey && e.key === 'z' && !e.shiftKey) {
+    // UNDO: (Ctrl/Cmd) + Z
+    if (isModifierPressed(e) && e.key === 'z' && !e.shiftKey) {
         e.preventDefault();
         if (cssHistoryIndex > 0) {
             applyHistoryState(cssHistoryIndex - 1);
         }
-    } else if (e.ctrlKey && e.key === 'y') {
+    }
+    // REDO: (Ctrl/Cmd) + Shift + Z (стандарт для Mac) ИЛИ Ctrl + Y (стандарт для Win/Linux)
+    else if ((isModifierPressed(e) && e.key === 'z' && e.shiftKey) || (e.ctrlKey && e.key === 'y')) {
         e.preventDefault();
         if (cssHistoryIndex < cssHistory.length - 1) {
             applyHistoryState(cssHistoryIndex + 1);
@@ -283,12 +291,10 @@ window.addEventListener('keydown', (e) => {
 });
 
 // ДОПОЛНИТЕЛЬНЫЙ слушатель специально для поля ввода.
-// Он "отпугивает" стандартное поведение браузера.
+// Он "отпугивает" стандартное поведение браузера для этих клавиш.
 input.addEventListener('keydown', (e) => {
-    if ((e.ctrlKey && e.key === 'z' && !e.shiftKey) || (e.ctrlKey && e.key === 'y')) {
-        e.preventDefault(); // <-- ВОТ ЭТО КЛЮЧЕВАЯ СТРОКА
-        // Мы не вызываем applyHistoryState здесь, потому что это уже сделает слушатель на window.
-        // Нам нужно только ОТМЕНИТЬ стандартное действие браузера для поля ввода.
+    if ((isModifierPressed(e) && e.key === 'z') || (e.ctrlKey && e.key === 'y')) {
+        e.preventDefault(); // <-- КЛЮЧЕВАЯ СТРОКА: запрещаем браузеру что-либо делать
     }
 });
 
