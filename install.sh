@@ -141,14 +141,12 @@ HTML = f"""
 @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap');
 * {{ box-sizing: border-box; }}
 html, body {{ margin: 0; padding: 0; background: #000; color: #e0e0e0; font-family: 'JetBrains Mono', monospace; font-weight: 400; -webkit-font-smoothing: antialiased; }}
-body {{ padding: 24px; min-height: 100vh; user-select: text; }}
+body {{ padding: 20px 24px; min-height: 100vh; user-select: text; }}
 #manuscript-header {{
-    color: #5a5a5a;
-    font-size: 11px;
-    border-bottom: 1px solid #2a2a2a;
-    padding-bottom: 8px;
-    margin-bottom: 16px;
-    user-select: none;
+    color: #4a4a4a;
+    font-size: 10px;
+    margin-bottom: 8px;
+    user-select: text;
 }}
 #manuscript {{
     white-space: pre-wrap;
@@ -176,7 +174,7 @@ body {{ padding: 24px; min-height: 100vh; user-select: text; }}
     color: #5a5a5a;
 }}
 .separator {{
-    color: #2a2a2a;
+    color: #111;
     font-size: 12px;
     margin: 0 0 0 0;
     user-select: text;
