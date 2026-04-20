@@ -234,7 +234,7 @@ async function loadMemory() {{
 
 function addMessageToUI(role, content, idx) {{
     const msgDiv = document.createElement('div');
-    msgDiv.className = `msg ${role}`;
+    msgDiv.className = `msg ${{role}}`;
     msgDiv.textContent = content;
     msgDiv.dataset.index = idx;
     msgDiv.style.userSelect = 'text';
