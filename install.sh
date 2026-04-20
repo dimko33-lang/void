@@ -1,8 +1,8 @@
 #!/bin/bash
 set -e
 
-# VOID Installer — исправленная версия (поле ввода сразу под шапкой)
-# Поле ввода поднято выше (сразу после технической строки), но не в самый верх страницы
+# VOID Installer — ТОЧНО ТВОЙ ОРИГИНАЛЬНЫЙ ФАЙЛ + только исправление выделения
+# (ничего не переставляли, поле > осталось внизу, как было в первом файле)
 
 if [ "$EUID" -ne 0 ]; then
     echo "Error: run as root"
@@ -40,7 +40,7 @@ source venv/bin/activate
 pip install --upgrade pip
 pip install flask requests python-dotenv
 
-# === void.py (поле ввода сразу под шапкой) ===
+# === void.py — твой оригинальный код + минимальные правки для выделения ===
 cat > void.py << 'EOF'
 #!/usr/bin/env python3
 """
@@ -131,34 +131,45 @@ HTML = f"""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap');
 * {{ box-sizing: border-box; margin: 0; padding: 0; }}
-html, body {{ 
-    background: #000; 
-    color: #e0e0e0; 
-    font-family: 'JetBrains Mono', monospace; 
-    font-weight: 400; 
-    -webkit-font-smoothing: antialiased; 
-}}
-body {{ 
-    padding: 8px; 
-    min-height: 100vh; 
-    display: flex;
-    flex-direction: column;
-}}
+html, body {{ background: #000; color: #e0e0e0; font-family: 'JetBrains Mono', monospace; font-weight: 400; -webkit-font-smoothing: antialiased; }}
+body {{ padding: 4px 8px; min-height: 100vh; }}
 
 #manuscript-header {{
     color: #4a4a4a;
     font-size: 10px;
-    margin-bottom: 6px;
+    margin-bottom: 2px;
     user-select: text;
-    flex-shrink: 0;
 }}
-
+#manuscript {{
+    white-space: pre-wrap;
+    word-break: break-word;
+    line-height: 1.6;
+    font-size: 14px;
+    -webkit-user-select: text !important;
+    -moz-user-select: text !important;
+    -ms-user-select: text !important;
+    user-select: text !important;
+    cursor: text;
+}}
+.msg {{
+    margin-bottom: 0;
+    user-select: text;
+}}
+.msg.user {{ color: #9a9a9a; }}
+.msg.assistant {{ color: #d0d0d0; }}
+.msg.user::before {{ content: "> "; color: #5a5a5a; }}
+.msg.assistant::before {{ content: "~ "; color: #5a5a5a; }}
+.separator {{
+    color: #181818;
+    font-size: 12px;
+    margin: 0 0 0 0;
+    user-select: text;
+}}
 #input-line {{
     display: flex;
     align-items: center;
-    margin-bottom: 8px;
+    margin-top: 0;
     color: #5a5a5a;
-    flex-shrink: 0;
 }}
 .prompt {{
     margin-right: 8px;
@@ -178,71 +189,29 @@ body {{
     white-space: nowrap;
     overflow-x: auto;
 }}
-
-#chat-container {{
-    flex-grow: 1;
-    overflow-y: auto;
-    -webkit-user-select: text !important;
-    -moz-user-select: text !important;
-    user-select: text !important;
-}}
-
-#manuscript,
-#manuscript * {{
-    -webkit-user-select: text !important;
-    -moz-user-select: text !important;
-    user-select: text !important;
-    cursor: text;
-}}
-#manuscript {{
-    white-space: pre-wrap;
-    word-break: break-word;
-    line-height: 1.65;
-    font-size: 14px;
-}}
-.msg {{
-    margin-bottom: 0;
-    user-select: text;
-}}
-.msg.user {{ color: #9a9a9a; }}
-.msg.assistant {{ color: #d0d0d0; }}
-.msg.user::before {{ content: "> "; color: #5a5a5a; }}
-.msg.assistant::before {{ content: "~ "; color: #5a5a5a; }}
-.separator {{
-    color: #181818;
-    font-size: 12px;
-    margin: 4px 0;
-    user-select: text;
+#editable-input:empty::before {{
+    content: attr(data-placeholder);
+    color: #3a3a3a;
 }}
 </style>
 <link rel="stylesheet" href="/css" id="dynamic-css">
 </head>
 <body>
-
-  <!-- Техническая шапка -->
-  <div id="manuscript-header">VOID · {MODEL_NAME} ({PROVIDER}) · thinking: {THINKING} · memory: {MEMORY_STATUS} · {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</div>
-
-  <!-- Поле ввода сразу под шапкой -->
-  <div id="input-line">
+<div id="manuscript-header">VOID · {MODEL_NAME} ({PROVIDER}) · thinking: {THINKING} · memory: {MEMORY_STATUS} · {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</div>
+<div id="manuscript">
+    <div class="separator">***</div>
+</div>
+<div id="input-line">
     <span class="prompt">></span>
     <div id="editable-input" contenteditable="true" data-placeholder=" "></div>
-  </div>
-
-  <!-- История чата (скроллится) -->
-  <div id="chat-container">
-    <div id="manuscript">
-      <div class="separator">***</div>
-    </div>
-  </div>
+</div>
 
 <script>
 const manuscript = document.getElementById('manuscript');
 const editableInput = document.getElementById('editable-input');
 let isSending = false;
 
-function refreshCSS() {{ 
-    document.getElementById('dynamic-css').href = '/css?' + Date.now(); 
-}}
+function refreshCSS() {{ document.getElementById('dynamic-css').href = '/css?' + Date.now(); }}
 
 function addMessageToUI(role, content) {{
     const msgDiv = document.createElement('div');
@@ -255,8 +224,7 @@ function addMessageToUI(role, content) {{
     sep.textContent = '***';
     manuscript.appendChild(sep);
    
-    const chatContainer = document.getElementById('chat-container');
-    chatContainer.scrollTop = chatContainer.scrollHeight;
+    window.scrollTo(0, document.body.scrollHeight);
 }}
 
 async function sendMessage() {{
@@ -273,28 +241,21 @@ async function sendMessage() {{
     assistantDiv.textContent = '';
     manuscript.appendChild(assistantDiv);
    
-    const chatContainer = document.getElementById('chat-container');
-    chatContainer.scrollTop = chatContainer.scrollHeight;
+    window.scrollTo(0, document.body.scrollHeight);
    
     try {{
-        const res = await fetch('/chat', {{ 
-            method: 'POST', 
-            headers: {{'Content-Type': 'application/json'}}, 
-            body: JSON.stringify({{message: text}}) 
-        }});
+        const res = await fetch('/chat', {{ method: 'POST', headers: {{'Content-Type': 'application/json'}}, body: JSON.stringify({{message: text}}) }});
         if (!res.ok) throw new Error('Chat failed');
-        
         const reader = res.body.getReader();
         const decoder = new TextDecoder();
         let fullResponse = '';
-        
         while (true) {{
             const {{done, value}} = await reader.read();
             if (done) break;
             const chunk = decoder.decode(value, {{stream: true}});
             fullResponse += chunk;
             assistantDiv.textContent = fullResponse;
-            chatContainer.scrollTop = chatContainer.scrollHeight;
+            window.scrollTo(0, document.body.scrollHeight);
         }}
        
         const sep = document.createElement('div');
@@ -303,9 +264,7 @@ async function sendMessage() {{
         manuscript.appendChild(sep);
        
         refreshCSS();
-    }} catch (e) {{ 
-        console.error(e); 
-    }} finally {{
+    }} catch (e) {{ console.error(e); }} finally {{
         isSending = false;
         editableInput.focus();
     }}
@@ -318,9 +277,9 @@ editableInput.addEventListener('keydown', (e) => {{
     }}
 }});
 
-// Умный фокус
+// УМНЫЙ ФОКУС — больше не ломает выделение
 document.addEventListener('mousedown', (e) => {{
-    if (e.target.closest('#chat-container') || 
+    if (e.target.closest('#manuscript') || 
         e.target.closest('#editable-input') || 
         e.target.closest('#input-line')) {{
         return;
@@ -328,18 +287,15 @@ document.addEventListener('mousedown', (e) => {{
     setTimeout(() => editableInput.focus(), 10);
 }});
 
-// Command+A / Ctrl+A — выделяет всю историю
+// Command+A / Ctrl+A — выделяет ВСЮ рукопись
 document.addEventListener('keydown', (e) => {{
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'a') {{
         e.preventDefault();
         const selection = window.getSelection();
         const range = document.createRange();
-        const chatContainer = document.getElementById('chat-container');
-        if (chatContainer) {{
-            range.selectNodeContents(chatContainer);
-            selection.removeAllRanges();
-            selection.addRange(range);
-        }}
+        range.selectNodeContents(manuscript);
+        selection.removeAllRanges();
+        selection.addRange(range);
     }}
 }});
 
@@ -379,25 +335,21 @@ def parse_and_execute_tools(content: str):
     return content, changed
 
 @app.route('/')
-def index(): 
-    return HTML
+def index(): return HTML
 
 @app.route('/css')
 def get_css():
-    if CSS_FILE.exists(): 
-        return Response(CSS_FILE.read_text(), mimetype='text/css')
+    if CSS_FILE.exists(): return Response(CSS_FILE.read_text(), mimetype='text/css')
     return '', 200
 
 @app.route('/memory')
-def get_memory(): 
-    return jsonify(memory)
+def get_memory(): return jsonify(memory)
 
 @app.route('/chat', methods=['POST'])
 def chat():
     data = request.get_json()
     user_msg = data.get('message', '').strip()
-    if not user_msg: 
-        return jsonify({'error': 'empty'}), 400
+    if not user_msg: return jsonify({'error': 'empty'}), 400
     
     memory.append({"role": "user", "content": user_msg})
     save_memory()
@@ -408,22 +360,16 @@ def chat():
         css_changed = False
         try:
             for chunk in agent.chat_stream(memory):
-                try: 
-                    clean_chunk = chunk.encode('latin-1').decode('utf-8')
-                except: 
-                    clean_chunk = chunk
+                try: clean_chunk = chunk.encode('latin-1').decode('utf-8')
+                except: clean_chunk = chunk
                 full_response += clean_chunk
                 yield clean_chunk
-            
             if '[CMD]' in full_response or '[CSS]' in full_response:
                 full_response, css_changed = parse_and_execute_tools(full_response)
-            
             memory.append({"role": "assistant", "content": full_response})
             save_memory()
             log_to_file('assistant', full_response)
-            
-            if css_changed: 
-                yield "\n\n✨ room updated"
+            if css_changed: yield "\n\n✨ room updated"
         except Exception as e:
             error_msg = f"[error]: {str(e)}"
             memory.append({"role": "assistant", "content": error_msg})
@@ -467,12 +413,13 @@ systemctl start void.service
 sleep 2
 if systemctl is-active --quiet void.service; then
     IP=$(hostname -I | awk '{print $1}')
-    echo "✅ VOID успешно установлен и обновлён!"
-    echo "🌐 Открой в браузере: http://$IP:42424"
-    echo "Теперь поле ввода (>) находится сразу под технической шапкой,"
-    echo "а вся история чата — ниже него."
+    echo "✅ VOID установлен (оригинальный стиль сохранён)"
+    echo "🌐 http://$IP:42424"
+    echo "Теперь:"
+    echo "   • Выделение мышкой работает"
+    echo "   • Command + A (Mac) / Ctrl + A (Windows/Linux) выделяет всю рукопись"
 else
-    echo "❌ Ошибка запуска:"
+    echo "❌ Ошибка:"
     journalctl -u void.service -n 30 --no-pager
     exit 1
 fi
