@@ -141,7 +141,7 @@ HTML = f"""
 @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap');
 * {{ box-sizing: border-box; margin: 0; padding: 0; }}
 html, body {{ background: #000; color: #e0e0e0; font-family: 'JetBrains Mono', monospace; font-weight: 400; -webkit-font-smoothing: antialiased; }}
-body {{ padding: 6px 10px; min-height: 100vh; user-select: text; }}
+body {{ padding: 4px 8px; min-height: 100vh; user-select: text; }}
 #manuscript-header {{
     color: #4a4a4a;
     font-size: 10px;
@@ -295,7 +295,7 @@ document.body.addEventListener('click', () => {{
     editableInput.focus();
 }});
 
-// Поддержка копирования
+// Разрешаем выделение и копирование
 document.addEventListener('copy', (e) => {{
     const selection = window.getSelection();
     e.clipboardData.setData('text/plain', selection.toString());
