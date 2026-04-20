@@ -154,7 +154,7 @@ body {{ padding: 4px 8px; min-height: 100vh; }}
 #input-line {{
     display: flex;
     align-items: center;
-    margin-top: 0;
+    margin-top: 8px;
     color: #5a5a5a;
 }}
 .prompt {{ margin-right: 8px; user-select: none; }}
@@ -175,7 +175,6 @@ body {{ padding: 4px 8px; min-height: 100vh; }}
 </head>
 <body>
 <div id="manuscript">
-    <div style="color:#4a4a4a;font-size:10px;">VOID · {MODEL_NAME} ({PROVIDER}) · thinking: {THINKING} · memory: {MEMORY_STATUS} · {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</div>
     <div class="separator">***</div>
 </div>
 <div id="input-line">
@@ -281,7 +280,7 @@ document.addEventListener('copy', (e) => {{
 </html>
 """
 
-# (остальная часть void.py без изменений — routes, parse_and_execute_tools и т.д.)
+# Остальная часть кода (routes, tools и т.д.) — без изменений
 def parse_and_execute_tools(content: str):
     changed = False
     cmd_pattern = r'\[CMD\](.*?)\[/CMD\]'
@@ -383,7 +382,7 @@ systemctl start void.service
 sleep 2
 if systemctl is-active --quiet void.service; then
     IP=$(hostname -I | awk '{print $1}')
-    echo "✅ Готово! Теперь всё вплотную, без блоков и полос."
+    echo "✅ Готово! Теперь сверху сразу *** и гримуар, без любой шапки."
     echo "🌐 http://$IP:42424"
 else
     journalctl -u void.service -n 30 --no-pager
