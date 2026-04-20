@@ -141,7 +141,7 @@ HTML = f"""
 @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap');
 * {{ box-sizing: border-box; }}
 html, body {{ margin: 0; padding: 0; background: #000; color: #e0e0e0; font-family: 'JetBrains Mono', monospace; font-weight: 400; -webkit-font-smoothing: antialiased; }}
-body {{ padding: 16px 20px; min-height: 100vh; user-select: text; }}
+body {{ padding: 12px 16px; min-height: 100vh; user-select: text; }}
 #manuscript-header {{
     color: #4a4a4a;
     font-size: 10px;
@@ -286,6 +286,7 @@ input.addEventListener('keydown', (e) => {{
     }}
 }});
 
+// Фокус на input при клике в любом месте
 document.body.addEventListener('click', () => {{
     input.focus();
 }});
