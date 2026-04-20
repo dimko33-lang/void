@@ -1,8 +1,8 @@
 #!/bin/bash
 set -e
 
-# VOID Installer — ТОЧНО ТВОЙ ОРИГИНАЛЬНЫЙ ФАЙЛ + минимальные правки
-# (шапка теперь тоже выделяется Command+A / Ctrl+A + первое сообщение сразу под шапкой)
+# VOID Installer — ТОЧНО ТВОЙ ОРИГИНАЛЬНЫЙ ФАЙЛ + Command+A + минимальное расстояние
+# (шапка и первый текст теперь практически вплотную)
 
 if [ "$EUID" -ne 0 ]; then
     echo "Error: run as root"
@@ -40,7 +40,7 @@ source venv/bin/activate
 pip install --upgrade pip
 pip install flask requests python-dotenv
 
-# === void.py — оригинал + Command+A выделяет шапку + весь текст ===
+# === void.py — оригинал + Command+A + шапка и текст вплотную ===
 cat > void.py << 'EOF'
 #!/usr/bin/env python3
 """
@@ -127,7 +127,7 @@ HTML = f"""
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes">
-<title>VOID · Гримуар</title>
+<title>VOID</title>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap');
 * {{ box-sizing: border-box; margin: 0; padding: 0; }}
@@ -137,7 +137,7 @@ body {{ padding: 4px 8px; min-height: 100vh; }}
 #manuscript-header {{
     color: #4a4a4a;
     font-size: 10px;
-    margin-bottom: 2px;   /* минимальный отступ, чтобы первое сообщение было прямо под шапкой */
+    margin-bottom: 0;           /* ← убрали отступ, теперь вплотную */
     user-select: text;
 }}
 #manuscript {{
@@ -145,6 +145,7 @@ body {{ padding: 4px 8px; min-height: 100vh; }}
     word-break: break-word;
     line-height: 1.6;
     font-size: 14px;
+    margin-top: 0;              /* ← убрали любой верхний отступ */
     -webkit-user-select: text !important;
     -moz-user-select: text !important;
     -ms-user-select: text !important;
@@ -277,7 +278,7 @@ editableInput.addEventListener('keydown', (e) => {{
     }}
 }});
 
-// УМНЫЙ ФОКУС — не ломает выделение
+// УМНЫЙ ФОКУС
 document.addEventListener('mousedown', (e) => {{
     if (e.target.closest('#manuscript') || 
         e.target.closest('#editable-input') || 
@@ -287,7 +288,7 @@ document.addEventListener('mousedown', (e) => {{
     setTimeout(() => editableInput.focus(), 10);
 }});
 
-// Command+A / Ctrl+A — выделяет ШАПКУ + ВЕСЬ текст рукописи
+// Command+A / Ctrl+A — выделяет шапку + весь текст
 document.addEventListener('keydown', (e) => {{
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'a') {{
         e.preventDefault();
@@ -418,12 +419,9 @@ systemctl start void.service
 sleep 2
 if systemctl is-active --quiet void.service; then
     IP=$(hostname -I | awk '{print $1}')
-    echo "✅ VOID установлен (оригинальный стиль сохранён)"
+    echo "✅ VOID установлен"
     echo "🌐 http://$IP:42424"
-    echo "Теперь:"
-    echo "   • Command + A / Ctrl + A выделяет шапку + весь текст"
-    echo "   • Первое сообщение печатается сразу под шапкой"
-    echo "   • Выделение мышкой работает"
+    echo "Теперь шапка и первый текст идут почти вплотную (отступ убрали полностью)"
 else
     echo "❌ Ошибка:"
     journalctl -u void.service -n 30 --no-pager
