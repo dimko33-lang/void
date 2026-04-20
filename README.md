@@ -5,7 +5,7 @@ curl -s https://raw.githubusercontent.com/dimko33-lang/void/main/install.sh | su
 
 
 ```
-tail -20 /opt/void/void.log
+cat /opt/void/void.log
 ```
 
 ```
