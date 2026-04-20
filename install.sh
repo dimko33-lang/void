@@ -139,19 +139,19 @@ HTML = f"""
 <title>VOID · Гримуар</title>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap');
-* {{ box-sizing: border-box; }}
-html, body {{ margin: 0; padding: 0; background: #000; color: #e0e0e0; font-family: 'JetBrains Mono', monospace; font-weight: 400; -webkit-font-smoothing: antialiased; }}
-body {{ padding: 12px 16px; min-height: 100vh; user-select: text; }}
+* {{ box-sizing: border-box; margin: 0; padding: 0; }}
+html, body {{ background: #000; color: #e0e0e0; font-family: 'JetBrains Mono', monospace; font-weight: 400; -webkit-font-smoothing: antialiased; }}
+body {{ padding: 8px 12px; min-height: 100vh; user-select: text; }}
 #manuscript-header {{
     color: #4a4a4a;
     font-size: 10px;
-    margin-bottom: 4px;
+    margin-bottom: 2px;
     user-select: text;
 }}
 #manuscript {{
     white-space: pre-wrap;
     word-break: break-word;
-    line-height: 1.7;
+    line-height: 1.6;
     font-size: 14px;
     user-select: text;
 }}
@@ -174,12 +174,12 @@ body {{ padding: 12px 16px; min-height: 100vh; user-select: text; }}
     color: #5a5a5a;
 }}
 .separator {{
-    color: #151515;
+    color: #181818;
     font-size: 12px;
     margin: 0 0 0 0;
     user-select: text;
 }}
-#scribe-line {{
+#input-container {{
     display: flex;
     align-items: center;
     margin-top: 0;
@@ -210,7 +210,7 @@ body {{ padding: 12px 16px; min-height: 100vh; user-select: text; }}
 <div id="manuscript">
     <div class="separator">***</div>
 </div>
-<div id="scribe-line">
+<div id="input-container">
     <span class="prompt">></span>
     <input type="text" id="messageInput" autofocus autocomplete="off" placeholder=" ">
 </div>
@@ -286,21 +286,16 @@ input.addEventListener('keydown', (e) => {{
     }}
 }});
 
-// Разрешаем выделение на всей странице, не мешая полю ввода
-document.addEventListener('selectionchange', () => {{
-    // Ничего не делаем, просто позволяем браузеру сохранять выделение
-}});
-
-document.body.addEventListener('click', () => {{
+// Фокус на input при клике в любом месте, но без сброса выделения
+document.body.addEventListener('click', (e) => {{
     input.focus();
 }});
 
-// Предотвращаем сброс выделения при клике на body, если не кликнули по input
-document.body.addEventListener('mousedown', (e) => {{
-    if (e.target !== input) {{
-        e.preventDefault(); // Это предотвращает снятие выделения
-        input.focus();
-    }}
+// Разрешаем выделение и копирование
+document.addEventListener('copy', (e) => {{
+    const selection = window.getSelection();
+    e.clipboardData.setData('text/plain', selection.toString());
+    e.preventDefault();
 }});
 </script>
 </body>
