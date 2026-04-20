@@ -1,39 +1,57 @@
 #!/bin/bash
 set -e
 
-[ "$EUID" -ne 0 ] && echo "run as root" && exit 1
+if [ "$EUID" -ne 0 ]; then 
+    echo "Error: run as root"
+    exit 1
+fi
 
 KEY="$1"
-[ -z "$KEY" ] && echo "Usage: curl -s URL | sudo bash -s -- \"KEY\"" && exit 1
+if [ -z "$KEY" ]; then
+    echo "Usage: curl -s URL | sudo bash -s -- \"YOUR-KEY\""
+    exit 1
+fi
 
+# Clean
 systemctl stop void 2>/dev/null || true
 systemctl disable void 2>/dev/null || true
 rm -f /etc/systemd/system/void.service
 rm -rf /opt/void
 systemctl daemon-reload
 
+# Dependencies
 apt update
 apt install -y python3 python3-pip python3-venv
 
+# Directory
 mkdir -p /opt/void/voids
 cd /opt/void
 
+# API Key
 echo "KIMI_API_KEY=$KEY" > .env
 chmod 600 .env
 
+# Python env
 python3 -m venv venv
 source venv/bin/activate
 pip install --upgrade pip
 pip install flask requests python-dotenv
 
-cat > void.py << 'PYEOF'
+# === void.py ===
+cat > void.py << 'EOF'
 #!/usr/bin/env python3
+"""
+VOID — Kimi K2.5 (Moonshot Global)
+"""
+
 import json
 import os
 import re
 import subprocess
+import shlex
 from pathlib import Path
-from datetime import datetime
+from typing import List, Dict, Optional, Generator
+
 import requests
 from dotenv import load_dotenv
 from flask import Flask, Response, jsonify, request, stream_with_context
@@ -43,21 +61,35 @@ load_dotenv()
 BASE_DIR = Path(__file__).parent
 VOIDS_DIR = BASE_DIR / "voids"
 CSS_FILE = VOIDS_DIR / "current.css"
-
+LOG_FILE = BASE_DIR / "void.log"
+MEMORY_FILE = BASE_DIR / "memory.json"
 VOIDS_DIR.mkdir(exist_ok=True)
 
-conversation_history = []
-thinking_enabled = False
-memory_enabled = False
+memory = []
+if MEMORY_FILE.exists():
+    try:
+        with open(MEMORY_FILE, 'r', encoding='utf-8') as f:
+            memory.extend(json.load(f))
+    except:
+        pass
+
+def save_memory():
+    with open(MEMORY_FILE, 'w', encoding='utf-8') as f:
+        json.dump(memory, f, ensure_ascii=False, indent=2)
+
+def log_to_file(role, content):
+    with open(LOG_FILE, 'a', encoding='utf-8') as f:
+        f.write(f"{content}\n***\n")
 
 class VoidAgent:
     def __init__(self):
         self.api_key = os.getenv("KIMI_API_KEY", "").strip()
         self.model = "kimi-k2.5"
+        # === ПРАВИЛЬНЫЙ МЕЖДУНАРОДНЫЙ URL ===
         self.url = "https://api.moonshot.ai/v1/chat/completions"
         self.timeout = 120
-
-    def _call_llm_stream(self, messages):
+    
+    def _call_llm_stream(self, messages: List[Dict]) -> Generator[str, None, None]:
         headers = {"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"}
         payload = {"model": self.model, "messages": messages, "stream": True}
         resp = requests.post(self.url, headers=headers, json=payload, timeout=self.timeout, stream=True)
@@ -75,115 +107,116 @@ class VoidAgent:
                         yield content
                 except:
                     continue
-
-    def chat_stream(self, messages):
+    
+    def execute_command(self, command: str) -> Dict:
+        try:
+            result = subprocess.run(shlex.split(command), capture_output=True, text=True, timeout=30, cwd=VOIDS_DIR)
+            output = result.stdout + result.stderr
+            return {"success": True, "output": output or "(нет вывода)", "exit_code": result.returncode}
+        except subprocess.TimeoutExpired:
+            return {"success": False, "output": "Timeout 30s", "exit_code": -1}
+        except Exception as e:
+            return {"success": False, "output": str(e), "exit_code": -1}
+    
+    def chat_stream(self, messages: List[Dict]) -> Generator[str, None, None]:
         yield from self._call_llm_stream(messages)
 
 agent = VoidAgent()
 app = Flask(__name__)
-
-MODEL_NAME = "kimi-k2.5"
-PROVIDER = "Moonshot"
 
 HTML = """
 <!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>VOID</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes">
+<title>void</title>
 <style>
-@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap');
-* { box-sizing: border-box; margin: 0; padding: 0; }
-html, body { background: #0c0c0c; color: #d4d4d4; font-family: 'JetBrains Mono', monospace; font-size: 14px; line-height: 1.5; padding: 6px 12px; min-height: 100vh; }
-#header { color: #4a4a4a; font-size: 10px; margin: 0; padding: 0; line-height: 1.3; user-select: text; }
-#manuscript { margin: 0; padding: 0; user-select: text; }
-.msg { margin: 0; padding: 0; line-height: 1.6; white-space: pre-wrap; word-break: break-word; user-select: text; }
-.msg.user { color: #9a9a9a; }
-.msg.assistant { color: #d4d4d4; }
-.msg.system { color: #6a6a6a; font-style: italic; }
-.msg .prefix { color: #5a5a5a; user-select: text; }
-.separator { margin: 0; padding: 0; line-height: 1.5; color: transparent; user-select: text; font-size: 12px; }
-#input-line { display: flex; align-items: center; margin: 0; padding: 0; color: #6a6a6a; }
-.prompt { margin-right: 8px; user-select: none; color: #5a5a5a; }
-#editable-input { background: transparent; border: none; color: #d4d4d4; font-family: inherit; font-size: 14px; flex-grow: 1; outline: none; caret-color: #a0a0a0; padding: 0; min-height: 1.5em; user-select: text; }
-#editable-input:empty::before { content: attr(data-placeholder); color: #4a4a4a; }
+@import url('https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,400;0,500;1,400;1,500&display=swap');
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; height: 100dvh; }
+body { background: #000000; color: #fff; font-family: 'Inter', sans-serif; font-weight: 400; overflow: hidden; -webkit-font-smoothing: antialiased; }
+::selection { background: rgba(255, 255, 255, 0.08); color: inherit; }
+#chatMessages { position: fixed; top: 0; left: 0; right: 0; bottom: 50px; overflow-y: auto; padding: 16px 18px; z-index: 2; }
+.msgWrap { margin-bottom: 2px; position: relative; cursor: default; user-select: text; -webkit-user-select: text; }
+.msg { margin: 0; letter-spacing: 0.01em; line-height: 1.6; word-break: break-word; white-space: pre-wrap; font-size: 15px; padding: 6px 0; }
+.msg.assistant { color: #e8e8e8; }
+.msg.user { color: #888888; }
+#messageInput { position: fixed; bottom: 16px; left: 18px; right: 18px; width: auto; background: transparent; color: #cccccc; border: none; outline: none; font-family: 'Inter', sans-serif; font-size: 15px; padding: 0; caret-color: rgba(255, 255, 255, 0.3); }
+#messageInput::placeholder { content: ""; opacity: 0; }
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: #000; }
+::-webkit-scrollbar-thumb { background: #2a2a2a; border-radius: 3px; }
+* { scrollbar-width: thin; scrollbar-color: #2a2a2a #000; }
+@media (max-width: 720px) { .msg { font-size: 14px; } #chatMessages { padding: 14px 14px; } #messageInput { left: 14px; right: 14px; font-size: 14px; } }
 </style>
 <link rel="stylesheet" href="/css" id="dynamic-css">
 </head>
 <body>
-<div id="header">VOID · """ + MODEL_NAME + """ (""" + PROVIDER + """) · <span id="thinking-status">thinking: off</span> · <span id="memory-status">memory: off</span> · """ + datetime.now().strftime('%Y-%m-%d %H:%M:%S') + """</div>
-<div id="manuscript"><div class="separator">***</div></div>
-<div id="input-line"><span class="prompt">></span><div id="editable-input" contenteditable="true" data-placeholder=" "></div></div>
+<div id="chatMessages"></div>
+<input type="text" id="messageInput" autofocus autocomplete="off" placeholder=" ">
 <script>
-const manuscript = document.getElementById('manuscript');
-const editableInput = document.getElementById('editable-input');
+const chatDiv = document.getElementById('chatMessages');
+const input = document.getElementById('messageInput');
 let isSending = false;
-
-async function loadHistory() {
-    const res = await fetch('/history');
-    const data = await res.json();
-    manuscript.innerHTML = '<div class="separator">***</div>';
-    data.history.forEach(msg => addMessageToUI(msg.role, msg.content, false));
-    document.getElementById('thinking-status').textContent = `thinking: ${data.thinking ? 'on' : 'off'}`;
-    document.getElementById('memory-status').textContent = `memory: ${data.memory ? 'on' : 'off'}`;
+let currentAssistantMsg = null;
+function refreshCSS() { document.getElementById('dynamic-css').href = '/css?' + Date.now(); }
+async function loadMemory() {
+    try {
+        const res = await fetch('/memory');
+        const data = await res.json();
+        const wasAtBottom = chatDiv.scrollHeight - chatDiv.scrollTop - chatDiv.clientHeight < 10;
+        chatDiv.innerHTML = '';
+        data.forEach((msg, idx) => { addMessageToUI(msg.role, msg.content, idx); });
+        if (wasAtBottom) chatDiv.scrollTop = chatDiv.scrollHeight;
+    } catch (e) { console.error('Failed to load memory:', e); }
 }
-
-function addMessageToUI(role, content, scroll = true) {
+function addMessageToUI(role, content, idx) {
+    const wrap = document.createElement('div');
+    wrap.className = 'msgWrap';
+    wrap.dataset.index = idx;
+    wrap.style.userSelect = 'text';
+    wrap.style.webkitUserSelect = 'text';
+    let lastClick = 0;
+    wrap.onclick = (e) => {
+        const now = Date.now();
+        if (now - lastClick < 200) {
+            e.stopPropagation();
+            fetch('/delete', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({index: parseInt(wrap.dataset.index)}) }).then(res => res.ok && loadMemory());
+        }
+        lastClick = now;
+    };
     const msgDiv = document.createElement('div');
     msgDiv.className = `msg ${role}`;
-    const prefixSpan = document.createElement('span');
-    prefixSpan.className = 'prefix';
-    prefixSpan.textContent = role === 'user' ? '> ' : '~ ';
-    msgDiv.appendChild(prefixSpan);
-    msgDiv.appendChild(document.createTextNode(content));
-    manuscript.appendChild(msgDiv);
-    const sep = document.createElement('div');
-    sep.className = 'separator';
-    sep.textContent = '***';
-    manuscript.appendChild(sep);
-    if (scroll) window.scrollTo(0, document.body.scrollHeight);
+    msgDiv.textContent = content;
+    msgDiv.style.userSelect = 'text';
+    msgDiv.style.webkitUserSelect = 'text';
+    wrap.appendChild(msgDiv);
+    chatDiv.appendChild(wrap);
 }
-
-function refreshCSS() { document.getElementById('dynamic-css').href = '/css?' + Date.now(); }
-
+function updateLastMessage(content) { if (currentAssistantMsg) currentAssistantMsg.querySelector('.msg').textContent = content; }
 async function sendMessage() {
-    const text = editableInput.innerText.trim();
+    const text = input.value.trim();
     if (!text || isSending) return;
     isSending = true;
-    editableInput.innerText = '';
-    
-    if (text.startsWith('/')) {
-        const res = await fetch('/command', { 
-            method: 'POST', 
-            headers: {'Content-Type': 'application/json'}, 
-            body: JSON.stringify({command: text}) 
-        });
-        const data = await res.json();
-        if (data.clear) manuscript.innerHTML = '<div class="separator">***</div>';
-        else addMessageToUI('system', data.message);
-        document.getElementById('thinking-status').textContent = `thinking: ${data.thinking ? 'on' : 'off'}`;
-        document.getElementById('memory-status').textContent = `memory: ${data.memory ? 'on' : 'off'}`;
-        isSending = false;
-        editableInput.focus();
-        return;
-    }
-    
-    addMessageToUI('user', text);
-    const assistantDiv = document.createElement('div');
-    assistantDiv.className = 'msg assistant';
-    const prefixSpan = document.createElement('span');
-    prefixSpan.className = 'prefix';
-    prefixSpan.textContent = '~ ';
-    assistantDiv.appendChild(prefixSpan);
-    manuscript.appendChild(assistantDiv);
-    
+    input.value = '';
+    input.disabled = true;
+    addMessageToUI('user', text, -1);
+    const wrap = document.createElement('div');
+    wrap.className = 'msgWrap';
+    wrap.style.userSelect = 'text';
+    wrap.style.webkitUserSelect = 'text';
+    const msgDiv = document.createElement('div');
+    msgDiv.className = 'msg assistant';
+    msgDiv.textContent = '';
+    msgDiv.style.userSelect = 'text';
+    msgDiv.style.webkitUserSelect = 'text';
+    wrap.appendChild(msgDiv);
+    chatDiv.appendChild(wrap);
+    currentAssistantMsg = wrap;
+    chatDiv.scrollTop = chatDiv.scrollHeight;
     try {
-        const res = await fetch('/chat', { 
-            method: 'POST', 
-            headers: {'Content-Type': 'application/json'}, 
-            body: JSON.stringify({message: text}) 
-        });
+        const res = await fetch('/chat', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({message: text}) });
         if (!res.ok) throw new Error('Chat failed');
         const reader = res.body.getReader();
         const decoder = new TextDecoder();
@@ -193,62 +226,30 @@ async function sendMessage() {
             if (done) break;
             const chunk = decoder.decode(value, {stream: true});
             fullResponse += chunk;
-            assistantDiv.innerHTML = '<span class="prefix">~ </span>' + fullResponse;
-            window.scrollTo(0, document.body.scrollHeight);
+            updateLastMessage(fullResponse);
+            chatDiv.scrollTop = chatDiv.scrollHeight;
         }
-        const sep = document.createElement('div');
-        sep.className = 'separator';
-        sep.textContent = '***';
-        manuscript.appendChild(sep);
+        await loadMemory();
         refreshCSS();
-    } catch (e) {
-        assistantDiv.innerHTML = '<span class="prefix">~ </span>[error]';
-    } finally {
+    } catch (e) { console.error(e); } finally {
         isSending = false;
-        editableInput.focus();
+        input.disabled = false;
+        input.focus();
+        currentAssistantMsg = null;
     }
 }
-
-editableInput.addEventListener('keydown', e => {
-    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
-});
-
-document.addEventListener('click', e => {
-    const isTextSelection = window.getSelection().toString().length > 0;
-    if (!isTextSelection && !e.target.closest('.msg') && !e.target.closest('#editable-input') && !e.target.closest('#header')) {
-        editableInput.focus();
-    }
-});
-
-document.addEventListener('keydown', e => {
-    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'a') {
-        e.preventDefault();
-        const selection = window.getSelection();
-        const range = document.createRange();
-        const header = document.getElementById('header');
-        range.setStartBefore(header);
-        range.setEndAfter(manuscript.lastChild || manuscript);
-        selection.removeAllRanges();
-        selection.addRange(range);
-    }
-});
-
-document.addEventListener('copy', e => {
-    const selection = window.getSelection();
-    e.clipboardData.setData('text/plain', selection.toString());
-    e.preventDefault();
-});
-
-loadHistory();
-editableInput.focus();
+input.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); } });
+loadMemory();
+input.focus();
 </script>
 </body>
 </html>
 """
 
-def parse_and_execute_tools(content):
+def parse_and_execute_tools(content: str):
     changed = False
-    for match in re.finditer(r'\[CMD\](.*?)\[/CMD\]', content, re.DOTALL):
+    cmd_pattern = r'\[CMD\](.*?)\[/CMD\]'
+    for match in re.finditer(cmd_pattern, content, re.DOTALL):
         cmd = match.group(1).strip()
         try:
             result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=30, cwd=VOIDS_DIR)
@@ -257,93 +258,79 @@ def parse_and_execute_tools(content):
             content = content.replace(match.group(0), f"[executed: {cmd}]\n{output}")
         except Exception as e:
             content = content.replace(match.group(0), f"[error: {cmd}]\n{str(e)}")
-    for match in re.finditer(r'\[CSS\](.*?)\[/CSS\]', content, re.DOTALL):
+    css_pattern = r'\[CSS\](.*?)\[/CSS\]'
+    for match in re.finditer(css_pattern, content, re.DOTALL):
         css = match.group(1).strip()
         try:
             CSS_FILE.write_text(css, encoding='utf-8')
             content = content.replace(match.group(0), "[style applied]")
             changed = True
-        except:
-            pass
+        except Exception as e:
+            content = content.replace(match.group(0), f"[css error: {str(e)}]")
     return content, changed
 
 @app.route('/')
 def index(): return HTML
-
 @app.route('/css')
 def get_css():
     if CSS_FILE.exists(): return Response(CSS_FILE.read_text(), mimetype='text/css')
     return '', 200
-
-@app.route('/history')
-def get_history():
-    return jsonify({
-        'history': conversation_history,
-        'thinking': thinking_enabled,
-        'memory': memory_enabled
-    })
-
-@app.route('/command', methods=['POST'])
-def handle_command():
-    global thinking_enabled, memory_enabled, conversation_history
-    data = request.get_json()
-    cmd = data.get('command', '').lower().strip()
-    
-    if cmd == '/t':
-        thinking_enabled = not thinking_enabled
-        status = 'on' if thinking_enabled else 'off'
-        return jsonify({'thinking': thinking_enabled, 'memory': memory_enabled, 'message': f'thinking {status}'})
-    elif cmd == '/m':
-        memory_enabled = not memory_enabled
-        if not memory_enabled:
-            conversation_history = []
-        status = 'on' if memory_enabled else 'off'
-        msg = f'memory {status}' + (' (cleared)' if not memory_enabled else '')
-        return jsonify({'thinking': thinking_enabled, 'memory': memory_enabled, 'message': msg})
-    elif cmd == '/c':
-        conversation_history = []
-        return jsonify({'thinking': thinking_enabled, 'memory': memory_enabled, 'clear': True})
-    else:
-        return jsonify({'thinking': thinking_enabled, 'memory': memory_enabled, 'message': '?'})
-
+@app.route('/memory')
+def get_memory(): return jsonify(memory)
 @app.route('/chat', methods=['POST'])
 def chat():
-    global conversation_history
     data = request.get_json()
     user_msg = data.get('message', '').strip()
     if not user_msg: return jsonify({'error': 'empty'}), 400
-    
-    conversation_history.append({"role": "user", "content": user_msg})
-    
+    memory.append({"role": "user", "content": user_msg})
+    save_memory()
+    log_to_file('user', user_msg)
     def generate():
-        global conversation_history
         full_response = ""
         css_changed = False
         try:
-            messages = conversation_history if memory_enabled else [{"role": "user", "content": user_msg}]
-            for chunk in agent.chat_stream(messages):
-                full_response += chunk
-                yield chunk
+            for chunk in agent.chat_stream(memory):
+                try: clean_chunk = chunk.encode('latin-1').decode('utf-8')
+                except: clean_chunk = chunk
+                full_response += clean_chunk
+                yield clean_chunk
             if '[CMD]' in full_response or '[CSS]' in full_response:
                 full_response, css_changed = parse_and_execute_tools(full_response)
-            conversation_history.append({"role": "assistant", "content": full_response})
+            memory.append({"role": "assistant", "content": full_response})
+            save_memory()
+            log_to_file('assistant', full_response)
             if css_changed: yield "\n\n✨ room updated"
         except Exception as e:
             error_msg = f"[error]: {str(e)}"
-            conversation_history.append({"role": "assistant", "content": error_msg})
+            memory.append({"role": "assistant", "content": error_msg})
+            save_memory()
+            log_to_file('assistant', error_msg)
             yield error_msg
-    
     return Response(stream_with_context(generate()), mimetype='text/plain; charset=utf-8')
-
+@app.route('/delete', methods=['POST'])
+def delete_message():
+    data = request.get_json()
+    idx = data.get('index')
+    try:
+        idx = int(idx)
+        if 0 <= idx < len(memory):
+            deleted = memory.pop(idx)
+            save_memory()
+            log_to_file('system', f"deleted [{idx}]: {deleted.get('content', '')[:50]}...")
+            return jsonify({'ok': True})
+    except (ValueError, TypeError): pass
+    return jsonify({'error': 'bad index'}), 400
 if __name__ == '__main__':
     host = os.getenv('HOST', '0.0.0.0')
     port = int(os.getenv('PORT', 42424))
+    print(f"VOID :: http://{host}:{port}")
     app.run(host=host, port=port, debug=False, threaded=True)
-PYEOF
+EOF
 
+# Service
 cat > /etc/systemd/system/void.service << EOF
 [Unit]
-Description=Void
+Description=Void AI Agent
 After=network.target
 
 [Service]
@@ -365,10 +352,11 @@ systemctl enable void.service
 systemctl start void.service
 
 sleep 2
+
 if systemctl is-active --quiet void.service; then
     IP=$(hostname -I | awk '{print $1}')
     echo "http://$IP:42424"
 else
-    journalctl -u void.service -n 10 --no-pager
+    journalctl -u void.service -n 30 --no-pager
     exit 1
 fi
