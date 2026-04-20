@@ -1,9 +1,6 @@
 #!/bin/bash
 set -e
 
-# VOID Installer — финальная версия по твоим пожеланиям
-# (шапка + *** + текст вплотную + *** полностью прозрачные, но выделяются)
-
 if [ "$EUID" -ne 0 ]; then
     echo "Error: run as root"
     exit 1
@@ -15,32 +12,26 @@ if [ -z "$KEY" ]; then
     exit 1
 fi
 
-# Clean old installation
 systemctl stop void 2>/dev/null || true
 systemctl disable void 2>/dev/null || true
 rm -f /etc/systemd/system/void.service
 rm -rf /opt/void
 systemctl daemon-reload
 
-# Dependencies
 apt update
 apt install -y python3 python3-pip python3-venv
 
-# Directory
 mkdir -p /opt/void/voids
 cd /opt/void
 
-# API Key
 echo "KIMI_API_KEY=$KEY" > .env
 chmod 600 .env
 
-# Python env
 python3 -m venv venv
 source venv/bin/activate
 pip install --upgrade pip
 pip install flask requests python-dotenv
 
-# === void.py — оригинал + супер-плотная вёрстка + невидимые *** ===
 cat > void.py << 'EOF'
 #!/usr/bin/env python3
 """
@@ -137,59 +128,36 @@ html, body {{
     font-family: 'JetBrains Mono', monospace; 
     font-weight: 400; 
     -webkit-font-smoothing: antialiased; 
-}}
-body {{ padding: 4px 8px; min-height: 100vh; }}
-
-#manuscript-header {{
-    color: #4a4a4a;
-    font-size: 10px;
-    margin-bottom: 0;
-    padding-bottom: 0;
-    user-select: text;
     line-height: 1;
 }}
+body {{ padding: 4px 8px; min-height: 100vh; }}
 
 #manuscript {{
     white-space: pre-wrap;
     word-break: break-word;
-    line-height: 1.6;
     font-size: 14px;
-    margin-top: 0;
-    padding-top: 0;
     -webkit-user-select: text !important;
     -moz-user-select: text !important;
-    -ms-user-select: text !important;
     user-select: text !important;
     cursor: text;
 }}
-
-.msg {{
-    margin-bottom: 0;
-    user-select: text;
-}}
+.msg {{ margin: 0; user-select: text; }}
 .msg.user::before {{ content: "> "; color: #5a5a5a; }}
 .msg.assistant::before {{ content: "~ "; color: #5a5a5a; }}
-
 .separator {{
-    color: transparent;           /* полностью невидимые, но выделяются */
-    font-size: 12px;
+    color: transparent;
     margin: 0;
     padding: 0;
     line-height: 1;
     user-select: text;
-    -webkit-user-select: text !important;
 }}
-
 #input-line {{
     display: flex;
     align-items: center;
     margin-top: 0;
     color: #5a5a5a;
 }}
-.prompt {{
-    margin-right: 8px;
-    user-select: none;
-}}
+.prompt {{ margin-right: 8px; user-select: none; }}
 #editable-input {{
     background: transparent;
     border: none;
@@ -201,15 +169,13 @@ body {{ padding: 4px 8px; min-height: 100vh; }}
     caret-color: #8a8a8a;
     padding: 0;
     user-select: text;
-    white-space: nowrap;
-    overflow-x: auto;
 }}
 </style>
 <link rel="stylesheet" href="/css" id="dynamic-css">
 </head>
 <body>
-<div id="manuscript-header">VOID · {MODEL_NAME} ({PROVIDER}) · thinking: {THINKING} · memory: {MEMORY_STATUS} · {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</div>
 <div id="manuscript">
+    <div style="color:#4a4a4a;font-size:10px;">VOID · {MODEL_NAME} ({PROVIDER}) · thinking: {THINKING} · memory: {MEMORY_STATUS} · {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</div>
     <div class="separator">***</div>
 </div>
 <div id="input-line">
@@ -290,11 +256,7 @@ editableInput.addEventListener('keydown', (e) => {{
 }});
 
 document.addEventListener('mousedown', (e) => {{
-    if (e.target.closest('#manuscript') || 
-        e.target.closest('#editable-input') || 
-        e.target.closest('#input-line')) {{
-        return;
-    }}
+    if (e.target.closest('#manuscript') || e.target.closest('#editable-input') || e.target.closest('#input-line')) return;
     setTimeout(() => editableInput.focus(), 10);
 }});
 
@@ -303,14 +265,9 @@ document.addEventListener('keydown', (e) => {{
         e.preventDefault();
         const selection = window.getSelection();
         const range = document.createRange();
-        const header = document.getElementById('manuscript-header');
-        const manuscriptEl = document.getElementById('manuscript');
-        if (header && manuscriptEl) {{
-            range.setStartBefore(header);
-            range.setEndAfter(manuscriptEl.lastChild || manuscriptEl);
-            selection.removeAllRanges();
-            selection.addRange(range);
-        }}
+        range.selectNodeContents(manuscript);
+        selection.removeAllRanges();
+        selection.addRange(range);
     }}
 }});
 
@@ -324,6 +281,7 @@ document.addEventListener('copy', (e) => {{
 </html>
 """
 
+# (остальная часть void.py без изменений — routes, parse_and_execute_tools и т.д.)
 def parse_and_execute_tools(content: str):
     changed = False
     cmd_pattern = r'\[CMD\](.*?)\[/CMD\]'
@@ -405,7 +363,6 @@ cat > /etc/systemd/system/void.service << EOF
 [Unit]
 Description=Void AI Agent
 After=network.target
-
 [Service]
 Type=simple
 User=root
@@ -415,7 +372,6 @@ Environment="PORT=42424"
 ExecStart=/opt/void/venv/bin/python3 /opt/void/void.py
 Restart=always
 RestartSec=10
-
 [Install]
 WantedBy=multi-user.target
 EOF
@@ -427,14 +383,9 @@ systemctl start void.service
 sleep 2
 if systemctl is-active --quiet void.service; then
     IP=$(hostname -I | awk '{print $1}')
-    echo "✅ VOID установлен"
+    echo "✅ Готово! Теперь всё вплотную, без блоков и полос."
     echo "🌐 http://$IP:42424"
-    echo "Теперь:"
-    echo "   • Шапка → сразу *** → сразу текст (максимально вплотную)"
-    echo "   • Звёздочки *** полностью прозрачные, но выделяются Command+A и мышкой"
-    echo "   • > и ~ — обычный текст, копируются"
 else
-    echo "❌ Ошибка:"
     journalctl -u void.service -n 30 --no-pager
     exit 1
 fi
