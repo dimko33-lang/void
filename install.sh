@@ -24,7 +24,7 @@ apt update
 apt install -y python3 python3-pip python3-venv
 
 # Directory
-mkdir -p /opt/void/voids
+mkdir -p /opt/void/voids /opt/void/snapshots
 cd /opt/void
 
 # API Key
@@ -49,6 +49,7 @@ import os
 import re
 import subprocess
 import shlex
+import shutil
 from pathlib import Path
 
 import requests
@@ -59,10 +60,12 @@ load_dotenv()
 
 BASE_DIR = Path(__file__).parent
 VOIDS_DIR = BASE_DIR / "voids"
+SNAPSHOTS_DIR = BASE_DIR / "snapshots"
 CSS_FILE = VOIDS_DIR / "current.css"
 LOG_FILE = BASE_DIR / "void.log"
 MEMORY_FILE = BASE_DIR / "memory.json"
 VOIDS_DIR.mkdir(exist_ok=True)
+SNAPSHOTS_DIR.mkdir(exist_ok=True)
 
 memory = []
 if MEMORY_FILE.exists():
@@ -80,11 +83,44 @@ def log_to_file(role, content):
     with open(LOG_FILE, 'a', encoding='utf-8') as f:
         f.write(f"{content}\n***\n")
 
+def create_snapshot():
+    """Создаёт полный слепок комнаты."""
+    existing = [int(p.name) for p in SNAPSHOTS_DIR.iterdir() if p.is_dir() and p.name.isdigit()]
+    next_id = max(existing) + 1 if existing else 0
+    snapshot_path = SNAPSHOTS_DIR / str(next_id)
+    snapshot_path.mkdir()
+    
+    # Копируем ключевые файлы
+    if MEMORY_FILE.exists(): shutil.copy2(MEMORY_FILE, snapshot_path / "memory.json")
+    if CSS_FILE.exists(): shutil.copy2(CSS_FILE, snapshot_path / "current.css")
+    
+    return next_id
+
+def restore_snapshot(snapshot_id):
+    """Восстанавливает комнату из слепка."""
+    snapshot_path = SNAPSHOTS_DIR / snapshot_id
+    if not snapshot_path.exists(): return False
+    
+    memory_src = snapshot_path / "memory.json"
+    css_src = snapshot_path / "current.css"
+    
+    if memory_src.exists(): shutil.copy2(memory_src, MEMORY_FILE)
+    if css_src.exists(): shutil.copy2(css_src, CSS_FILE)
+    
+    global memory
+    memory.clear()
+    if MEMORY_FILE.exists():
+        try:
+            with open(MEMORY_FILE, 'r', encoding='utf-8') as f:
+                memory.extend(json.load(f))
+        except: pass
+    
+    return True
+
 class VoidAgent:
     def __init__(self):
         self.api_key = os.getenv("KIMI_API_KEY", "").strip()
         self.model = "kimi-k2.5"
-        # === ПРАВИЛЬНЫЙ МЕЖДУНАРОДНЫЙ URL ===
         self.url = "https://api.moonshot.ai/v1/chat/completions"
         self.timeout = 120
     
@@ -230,6 +266,15 @@ async function sendMessage() {
         }
         await loadMemory();
         refreshCSS();
+        
+        // После успешного ответа проверяем, был ли создан новый снапшот
+        const snapshotRes = await fetch('/last_snapshot_id');
+        const data = await snapshotRes.json();
+        if (data.id !== undefined) {
+            const url = new URL(window.location);
+            url.hash = `step${data.id}`;
+            window.history.pushState({ snapshotId: data.id }, '', url);
+        }
     } catch (e) { console.error(e); } finally {
         isSending = false;
         input.disabled = false;
@@ -238,66 +283,42 @@ async function sendMessage() {
     }
 }
 input.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); } });
-loadMemory();
 
-// --- ПРОСТЕЙШИЙ UNDO / REDO (ПРОВЕРЕНО) ---
-let cssHistory = [];
-let cssHistoryIndex = -1;
-
-function saveState(css) {
-    if (cssHistoryIndex < cssHistory.length - 1) {
-        cssHistory = cssHistory.slice(0, cssHistoryIndex + 1);
-    }
-    cssHistory.push(css);
-    cssHistoryIndex = cssHistory.length - 1;
-}
-
-function undo() {
-    if (cssHistoryIndex > 0) {
-        cssHistoryIndex--;
-        fetch('/css', { method: 'POST', body: cssHistory[cssHistoryIndex] }).then(refreshCSS);
-    }
-}
-
-function redo() {
-    if (cssHistoryIndex < cssHistory.length - 1) {
-        cssHistoryIndex++;
-        fetch('/css', { method: 'POST', body: cssHistory[cssHistoryIndex] }).then(refreshCSS);
-    }
-}
-
-document.addEventListener('keydown', (e) => {
-    const mod = e.ctrlKey || e.metaKey;
-    if (mod && e.key === 'z' && !e.shiftKey) {
-        e.preventDefault();
-        undo();
-    } else if ((mod && e.key === 'z' && e.shiftKey) || (e.ctrlKey && e.key === 'y')) {
-        e.preventDefault();
-        redo();
+// --- МАШИНА ВРЕМЕНИ: Навигация по снапшотам через стрелки браузера ---
+window.addEventListener('popstate', (event) => {
+    const state = event.state;
+    if (state && state.snapshotId !== undefined) {
+        fetch(`/restore/${state.snapshotId}`, { method: 'POST' })
+            .then(() => { loadMemory(); refreshCSS(); });
+    } else {
+        // Если state пустой (вернулись в самое начало)
+        fetch('/restore/0', { method: 'POST' })
+            .then(() => { loadMemory(); refreshCSS(); });
     }
 });
 
-// Перехват CSS от модели
-const originalFetch = window.fetch;
-window.fetch = async function(...args) {
-    const res = await originalFetch.apply(this, args);
-    if (args[0] === '/css' && args[1]?.method === 'POST') {
-        setTimeout(() => saveState(args[1].body), 50);
+// При загрузке страницы, если в URL уже есть хеш, восстанавливаем состояние
+(async function init() {
+    const hash = window.location.hash;
+    if (hash && hash.startsWith('#step')) {
+        const snapshotId = hash.substring(5);
+        try {
+            await fetch(`/restore/${snapshotId}`, { method: 'POST' });
+            await loadMemory();
+            refreshCSS();
+            window.history.replaceState({ snapshotId: parseInt(snapshotId) }, '', hash);
+        } catch(e) {}
+    } else {
+        // Создаём начальный снапшот, если его нет
+        const res = await fetch('/create_snapshot', { method: 'POST' });
+        const data = await res.json();
+        const url = new URL(window.location);
+        url.hash = `step${data.id}`;
+        window.history.replaceState({ snapshotId: data.id }, '', url);
     }
-    return res;
-};
-
-// Инициализация
-(async function() {
-    try {
-        const res = await fetch('/css');
-        const css = await res.text();
-        if (css) { cssHistory = [css]; cssHistoryIndex = 0; }
-    } catch (e) {}
+    input.focus();
 })();
-// --- КОНЕЦ ---
-
-input.focus();
+// --- КОНЕЦ МАШИНЫ ВРЕМЕНИ ---
 </script>
 </body>
 </html>
@@ -340,8 +361,26 @@ def handle_css():
     else:
         if CSS_FILE.exists(): return Response(CSS_FILE.read_text(), mimetype='text/css')
         return '', 200
+
+@app.route('/create_snapshot', methods=['POST'])
+def create_snapshot_route():
+    snapshot_id = create_snapshot()
+    return jsonify({"id": snapshot_id})
+
+@app.route('/last_snapshot_id', methods=['GET'])
+def last_snapshot_id():
+    existing = [int(p.name) for p in SNAPSHOTS_DIR.iterdir() if p.is_dir() and p.name.isdigit()]
+    last_id = max(existing) if existing else -1
+    return jsonify({"id": last_id})
+
+@app.route('/restore/<int:snapshot_id>', methods=['POST'])
+def restore_snapshot_route(snapshot_id):
+    success = restore_snapshot(str(snapshot_id))
+    return jsonify({"success": success})
+
 @app.route('/memory')
 def get_memory(): return jsonify(memory)
+
 @app.route('/chat', methods=['POST'])
 def chat():
     data = request.get_json()
@@ -350,7 +389,11 @@ def chat():
     memory.append({"role": "user", "content": user_msg})
     save_memory()
     log_to_file('user', user_msg)
+    
+    snapshot_created = False
+    
     def generate():
+        nonlocal snapshot_created
         full_response = ""
         css_changed = False
         try:
@@ -364,6 +407,12 @@ def chat():
             memory.append({"role": "assistant", "content": full_response})
             save_memory()
             log_to_file('assistant', full_response)
+            
+            # Создаём снапшот, только если что-то изменилось в комнате (CSS или CMD)
+            if css_changed or '[CMD]' in full_response:
+                create_snapshot()
+                snapshot_created = True
+                
             if css_changed: yield "\n\n✨ room updated"
         except Exception as e:
             error_msg = f"[error]: {str(e)}"
@@ -371,7 +420,9 @@ def chat():
             save_memory()
             log_to_file('assistant', error_msg)
             yield error_msg
+    
     return Response(stream_with_context(generate()), mimetype='text/plain; charset=utf-8')
+
 @app.route('/delete', methods=['POST'])
 def delete_message():
     data = request.get_json()
@@ -385,6 +436,7 @@ def delete_message():
             return jsonify({'ok': True})
     except (ValueError, TypeError): pass
     return jsonify({'error': 'bad index'}), 400
+
 if __name__ == '__main__':
     host = os.getenv('HOST', '0.0.0.0')
     port = int(os.getenv('PORT', 42424))
