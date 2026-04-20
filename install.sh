@@ -107,11 +107,6 @@ class VoidAgent:
 agent = VoidAgent()
 app = Flask(__name__)
 
-MODEL_NAME = "kimi-k2.5"
-PROVIDER = "Moonshot"
-THINKING = "enabled"
-MEMORY_STATUS = "on"
-
 HTML = f"""
 <!DOCTYPE html>
 <html lang="ru">
@@ -128,14 +123,16 @@ html, body {{
     font-family: 'JetBrains Mono', monospace; 
     font-weight: 400; 
     -webkit-font-smoothing: antialiased; 
-    line-height: 1;
+    line-height: 1.6;
 }}
-body {{ padding: 4px 8px; min-height: 100vh; }}
+body {{ padding: 0 8px 8px 8px; min-height: 100vh; }}   /* отступ только снизу */
 
 #manuscript {{
     white-space: pre-wrap;
     word-break: break-word;
     font-size: 14px;
+    margin-top: 0;
+    padding-top: 0;
     -webkit-user-select: text !important;
     -moz-user-select: text !important;
     user-select: text !important;
@@ -192,8 +189,7 @@ function refreshCSS() {{ document.getElementById('dynamic-css').href = '/css?' +
 function addMessageToUI(role, content) {{
     const msgDiv = document.createElement('div');
     msgDiv.className = `msg ${{role}}`;
-    const prefix = role === 'user' ? '> ' : '~ ';
-    msgDiv.textContent = prefix + content;
+    msgDiv.textContent = content;                 // ← только голый текст, префикс добавляет CSS
     manuscript.appendChild(msgDiv);
    
     const sep = document.createElement('div');
@@ -215,7 +211,7 @@ async function sendMessage() {{
    
     const assistantDiv = document.createElement('div');
     assistantDiv.className = 'msg assistant';
-    assistantDiv.textContent = '~ ';
+    assistantDiv.textContent = '';
     manuscript.appendChild(assistantDiv);
    
     window.scrollTo(0, document.body.scrollHeight);
@@ -231,7 +227,7 @@ async function sendMessage() {{
             if (done) break;
             const chunk = decoder.decode(value, {{stream: true}});
             fullResponse += chunk;
-            assistantDiv.textContent = '~ ' + fullResponse;
+            assistantDiv.textContent = fullResponse;
             window.scrollTo(0, document.body.scrollHeight);
         }}
        
@@ -280,7 +276,7 @@ document.addEventListener('copy', (e) => {{
 </html>
 """
 
-# Остальная часть кода (routes, tools и т.д.) — без изменений
+# === остальная часть кода без изменений ===
 def parse_and_execute_tools(content: str):
     changed = False
     cmd_pattern = r'\[CMD\](.*?)\[/CMD\]'
@@ -357,7 +353,6 @@ if __name__ == '__main__':
     app.run(host=host, port=port, debug=False, threaded=True)
 EOF
 
-# Service
 cat > /etc/systemd/system/void.service << EOF
 [Unit]
 Description=Void AI Agent
@@ -382,7 +377,7 @@ systemctl start void.service
 sleep 2
 if systemctl is-active --quiet void.service; then
     IP=$(hostname -I | awk '{print $1}')
-    echo "✅ Готово! Теперь сверху сразу *** и гримуар, без любой шапки."
+    echo "✅ Теперь текст начинается прямо от самого верха окна"
     echo "🌐 http://$IP:42424"
 else
     journalctl -u void.service -n 30 --no-pager
