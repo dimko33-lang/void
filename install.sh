@@ -180,7 +180,7 @@ function addMessageToUI(role, content, idx) {
     let lastClick = 0;
     wrap.onclick = (e) => {
         const now = Date.now();
-        if (now - lastClick < 200) {
+        if (now - lastClick < 230) {
             e.stopPropagation();
             fetch('/delete', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({index: parseInt(wrap.dataset.index)}) }).then(res => res.ok && loadMemory());
         }
