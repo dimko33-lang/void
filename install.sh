@@ -1,8 +1,8 @@
 #!/bin/bash
 set -e
 
-# VOID Installer — ТОЧНО ТВОЙ ОРИГИНАЛЬНЫЙ ФАЙЛ + только исправление выделения
-# (ничего не переставляли, поле > осталось внизу, как было в первом файле)
+# VOID Installer — ТОЧНО ТВОЙ ОРИГИНАЛЬНЫЙ ФАЙЛ + минимальные правки
+# (шапка теперь тоже выделяется Command+A / Ctrl+A + первое сообщение сразу под шапкой)
 
 if [ "$EUID" -ne 0 ]; then
     echo "Error: run as root"
@@ -40,7 +40,7 @@ source venv/bin/activate
 pip install --upgrade pip
 pip install flask requests python-dotenv
 
-# === void.py — твой оригинальный код + минимальные правки для выделения ===
+# === void.py — оригинал + Command+A выделяет шапку + весь текст ===
 cat > void.py << 'EOF'
 #!/usr/bin/env python3
 """
@@ -137,7 +137,7 @@ body {{ padding: 4px 8px; min-height: 100vh; }}
 #manuscript-header {{
     color: #4a4a4a;
     font-size: 10px;
-    margin-bottom: 2px;
+    margin-bottom: 2px;   /* минимальный отступ, чтобы первое сообщение было прямо под шапкой */
     user-select: text;
 }}
 #manuscript {{
@@ -277,7 +277,7 @@ editableInput.addEventListener('keydown', (e) => {{
     }}
 }});
 
-// УМНЫЙ ФОКУС — больше не ломает выделение
+// УМНЫЙ ФОКУС — не ломает выделение
 document.addEventListener('mousedown', (e) => {{
     if (e.target.closest('#manuscript') || 
         e.target.closest('#editable-input') || 
@@ -287,15 +287,20 @@ document.addEventListener('mousedown', (e) => {{
     setTimeout(() => editableInput.focus(), 10);
 }});
 
-// Command+A / Ctrl+A — выделяет ВСЮ рукопись
+// Command+A / Ctrl+A — выделяет ШАПКУ + ВЕСЬ текст рукописи
 document.addEventListener('keydown', (e) => {{
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'a') {{
         e.preventDefault();
         const selection = window.getSelection();
         const range = document.createRange();
-        range.selectNodeContents(manuscript);
-        selection.removeAllRanges();
-        selection.addRange(range);
+        const header = document.getElementById('manuscript-header');
+        const manuscriptEl = document.getElementById('manuscript');
+        if (header && manuscriptEl) {{
+            range.setStartBefore(header);
+            range.setEndAfter(manuscriptEl.lastChild || manuscriptEl);
+            selection.removeAllRanges();
+            selection.addRange(range);
+        }}
     }}
 }});
 
@@ -416,8 +421,9 @@ if systemctl is-active --quiet void.service; then
     echo "✅ VOID установлен (оригинальный стиль сохранён)"
     echo "🌐 http://$IP:42424"
     echo "Теперь:"
+    echo "   • Command + A / Ctrl + A выделяет шапку + весь текст"
+    echo "   • Первое сообщение печатается сразу под шапкой"
     echo "   • Выделение мышкой работает"
-    echo "   • Command + A (Mac) / Ctrl + A (Windows/Linux) выделяет всю рукопись"
 else
     echo "❌ Ошибка:"
     journalctl -u void.service -n 30 --no-pager
