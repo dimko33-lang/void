@@ -286,9 +286,21 @@ input.addEventListener('keydown', (e) => {{
     }}
 }});
 
-// Фокус на input при клике в любом месте
+// Разрешаем выделение на всей странице, не мешая полю ввода
+document.addEventListener('selectionchange', () => {{
+    // Ничего не делаем, просто позволяем браузеру сохранять выделение
+}});
+
 document.body.addEventListener('click', () => {{
     input.focus();
+}});
+
+// Предотвращаем сброс выделения при клике на body, если не кликнули по input
+document.body.addEventListener('mousedown', (e) => {{
+    if (e.target !== input) {{
+        e.preventDefault(); // Это предотвращает снятие выделения
+        input.focus();
+    }}
 }});
 </script>
 </body>
