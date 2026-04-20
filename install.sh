@@ -107,6 +107,11 @@ class VoidAgent:
 agent = VoidAgent()
 app = Flask(__name__)
 
+MODEL_NAME = "kimi-k2.5"
+PROVIDER = "Moonshot"
+THINKING = "enabled"
+MEMORY_STATUS = "on"
+
 HTML = f"""
 <!DOCTYPE html>
 <html lang="ru">
@@ -117,42 +122,46 @@ HTML = f"""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap');
 * {{ box-sizing: border-box; margin: 0; padding: 0; }}
-html, body {{ 
-    background: #000; 
-    color: #e0e0e0; 
-    font-family: 'JetBrains Mono', monospace; 
-    font-weight: 400; 
-    -webkit-font-smoothing: antialiased; 
-    line-height: 1.6;
-    margin: 0 !important;
-    padding: 8px 8px 8px 8px !important;   /* минимальный отступ сверху 8px */
+html, body {{ background: #000; color: #e0e0e0; font-family: 'JetBrains Mono', monospace; font-weight: 400; -webkit-font-smoothing: antialiased; }}
+body {{ padding: 4px 8px; min-height: 100vh; }}
+
+#manuscript-header {{
+    color: #4a4a4a;
+    font-size: 10px;
+    margin-bottom: 0;               /* минимальное расстояние */
+    user-select: text;
 }}
 #manuscript {{
     white-space: pre-wrap;
     word-break: break-word;
+    line-height: 1.6;
     font-size: 14px;
+    margin-top: 0;
     -webkit-user-select: text !important;
     -moz-user-select: text !important;
     user-select: text !important;
     cursor: text;
 }}
-.msg {{ margin: 0; user-select: text; }}
-.msg.user::before {{ content: "> "; color: #5a5a5a; }}
-.msg.assistant::before {{ content: "~ "; color: #5a5a5a; }}
+.msg {{
+    margin-bottom: 0;
+    user-select: text;
+}}
 .separator {{
     color: transparent;
+    font-size: 12px;
     margin: 0;
-    padding: 0;
-    line-height: 1;
     user-select: text;
 }}
 #input-line {{
     display: flex;
     align-items: center;
-    margin-top: 8px;
+    margin-top: 0;
     color: #5a5a5a;
 }}
-.prompt {{ margin-right: 8px; user-select: none; }}
+.prompt {{
+    margin-right: 8px;
+    user-select: none;
+}}
 #editable-input {{
     background: transparent;
     border: none;
@@ -169,6 +178,7 @@ html, body {{
 <link rel="stylesheet" href="/css" id="dynamic-css">
 </head>
 <body>
+<div id="manuscript-header">VOID · {MODEL_NAME} ({PROVIDER}) · thinking: {THINKING} · memory: {MEMORY_STATUS} · {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</div>
 <div id="manuscript">
     <div class="separator">***</div>
 </div>
@@ -188,7 +198,7 @@ function addMessageToUI(role, content) {{
     const msgDiv = document.createElement('div');
     msgDiv.className = `msg ${{role}}`;
     const prefix = role === 'user' ? '> ' : '~ ';
-    msgDiv.textContent = prefix + content;
+    msgDiv.textContent = prefix + content;        // ← настоящий текст, копируется
     manuscript.appendChild(msgDiv);
    
     const sep = document.createElement('div');
@@ -259,7 +269,10 @@ document.addEventListener('keydown', (e) => {{
         e.preventDefault();
         const selection = window.getSelection();
         const range = document.createRange();
-        range.selectNodeContents(manuscript);
+        const header = document.getElementById('manuscript-header');
+        const manuscriptEl = document.getElementById('manuscript');
+        range.setStartBefore(header);
+        range.setEndAfter(manuscriptEl.lastChild || manuscriptEl);
         selection.removeAllRanges();
         selection.addRange(range);
     }}
@@ -275,7 +288,7 @@ document.addEventListener('copy', (e) => {{
 </html>
 """
 
-# === остальная часть (routes, parse_and_execute_tools и т.д.) ===
+# === остальная часть кода (tools, routes) ===
 def parse_and_execute_tools(content: str):
     changed = False
     cmd_pattern = r'\[CMD\](.*?)\[/CMD\]'
@@ -377,7 +390,7 @@ systemctl start void.service
 sleep 2
 if systemctl is-active --quiet void.service; then
     IP=$(hostname -I | awk '{print $1}')
-    echo "✅ Готово! Теперь сверху ровно 8 пикселей, префиксы > и ~ копируются"
+    echo "✅ Шапка возвращена, расстояние минимальное, > и ~ копируются"
     echo "🌐 http://$IP:42424"
 else
     journalctl -u void.service -n 30 --no-pager
