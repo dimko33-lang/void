@@ -1,8 +1,8 @@
 #!/bin/bash
 set -e
 
-# VOID Installer — ТОЧНО ТВОЙ ОРИГИНАЛЬНЫЙ ФАЙЛ + финальные правки
-# (шапка → сразу *** → сразу > текст без пустых строк)
+# VOID Installer — финальная версия по твоим пожеланиям
+# (шапка + *** + текст вплотную + *** полностью прозрачные, но выделяются)
 
 if [ "$EUID" -ne 0 ]; then
     echo "Error: run as root"
@@ -40,7 +40,7 @@ source venv/bin/activate
 pip install --upgrade pip
 pip install flask requests python-dotenv
 
-# === void.py — оригинал + плотная верстка + префиксы > и ~ как настоящий текст ===
+# === void.py — оригинал + супер-плотная вёрстка + невидимые *** ===
 cat > void.py << 'EOF'
 #!/usr/bin/env python3
 """
@@ -131,37 +131,55 @@ HTML = f"""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap');
 * {{ box-sizing: border-box; margin: 0; padding: 0; }}
-html, body {{ background: #000; color: #e0e0e0; font-family: 'JetBrains Mono', monospace; font-weight: 400; -webkit-font-smoothing: antialiased; }}
+html, body {{ 
+    background: #000; 
+    color: #e0e0e0; 
+    font-family: 'JetBrains Mono', monospace; 
+    font-weight: 400; 
+    -webkit-font-smoothing: antialiased; 
+}}
 body {{ padding: 4px 8px; min-height: 100vh; }}
 
 #manuscript-header {{
     color: #4a4a4a;
     font-size: 10px;
     margin-bottom: 0;
+    padding-bottom: 0;
     user-select: text;
+    line-height: 1;
 }}
+
 #manuscript {{
     white-space: pre-wrap;
     word-break: break-word;
     line-height: 1.6;
     font-size: 14px;
     margin-top: 0;
+    padding-top: 0;
     -webkit-user-select: text !important;
     -moz-user-select: text !important;
     -ms-user-select: text !important;
     user-select: text !important;
     cursor: text;
 }}
+
 .msg {{
     margin-bottom: 0;
     user-select: text;
 }}
+.msg.user::before {{ content: "> "; color: #5a5a5a; }}
+.msg.assistant::before {{ content: "~ "; color: #5a5a5a; }}
+
 .separator {{
-    color: #181818;
+    color: transparent;           /* полностью невидимые, но выделяются */
     font-size: 12px;
-    margin: 0 0 0 0;
+    margin: 0;
+    padding: 0;
+    line-height: 1;
     user-select: text;
+    -webkit-user-select: text !important;
 }}
+
 #input-line {{
     display: flex;
     align-items: center;
@@ -186,10 +204,6 @@ body {{ padding: 4px 8px; min-height: 100vh; }}
     white-space: nowrap;
     overflow-x: auto;
 }}
-#editable-input:empty::before {{
-    content: attr(data-placeholder);
-    color: #3a3a3a;
-}}
 </style>
 <link rel="stylesheet" href="/css" id="dynamic-css">
 </head>
@@ -213,7 +227,6 @@ function refreshCSS() {{ document.getElementById('dynamic-css').href = '/css?' +
 function addMessageToUI(role, content) {{
     const msgDiv = document.createElement('div');
     msgDiv.className = `msg ${{role}}`;
-    // Префиксы > и ~ теперь настоящий текст (будут выделяться и копироваться)
     const prefix = role === 'user' ? '> ' : '~ ';
     msgDiv.textContent = prefix + content;
     manuscript.appendChild(msgDiv);
@@ -237,7 +250,7 @@ async function sendMessage() {{
    
     const assistantDiv = document.createElement('div');
     assistantDiv.className = 'msg assistant';
-    assistantDiv.textContent = '~ ';  // начальный префикс для ассистента
+    assistantDiv.textContent = '~ ';
     manuscript.appendChild(assistantDiv);
    
     window.scrollTo(0, document.body.scrollHeight);
@@ -276,7 +289,6 @@ editableInput.addEventListener('keydown', (e) => {{
     }}
 }});
 
-// УМНЫЙ ФОКУС
 document.addEventListener('mousedown', (e) => {{
     if (e.target.closest('#manuscript') || 
         e.target.closest('#editable-input') || 
@@ -286,7 +298,6 @@ document.addEventListener('mousedown', (e) => {{
     setTimeout(() => editableInput.focus(), 10);
 }});
 
-// Command+A / Ctrl+A — выделяет шапку + весь текст
 document.addEventListener('keydown', (e) => {{
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'a') {{
         e.preventDefault();
@@ -303,7 +314,6 @@ document.addEventListener('keydown', (e) => {{
     }}
 }});
 
-// Копирование
 document.addEventListener('copy', (e) => {{
     const selection = window.getSelection();
     e.clipboardData.setData('text/plain', selection.toString());
@@ -419,12 +429,10 @@ if systemctl is-active --quiet void.service; then
     IP=$(hostname -I | awk '{print $1}')
     echo "✅ VOID установлен"
     echo "🌐 http://$IP:42424"
-    echo "Теперь точно как ты просил:"
-    echo "   • Шапка"
-    echo "   • Сразу ***"
-    echo "   • Сразу > текст (вплотную)"
-    echo "   • > и ~ — настоящий текст, выделяются и копируются"
-    echo "   • Command+A / Ctrl+A выделяет всё"
+    echo "Теперь:"
+    echo "   • Шапка → сразу *** → сразу текст (максимально вплотную)"
+    echo "   • Звёздочки *** полностью прозрачные, но выделяются Command+A и мышкой"
+    echo "   • > и ~ — обычный текст, копируются"
 else
     echo "❌ Ошибка:"
     journalctl -u void.service -n 30 --no-pager
