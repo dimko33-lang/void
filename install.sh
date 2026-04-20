@@ -1,8 +1,8 @@
 #!/bin/bash
 set -e
 
-# VOID Installer (исправленная версия с рабочим выделением текста)
-# Сохрани как install.sh и запускай: curl -s URL | sudo bash -s -- "YOUR-KEY"
+# VOID Installer — обновлённая версия (поле ввода сверху + Command+A / Ctrl+A работает)
+# Сохрани как install.sh
 
 if [ "$EUID" -ne 0 ]; then
     echo "Error: run as root"
@@ -40,7 +40,7 @@ source venv/bin/activate
 pip install --upgrade pip
 pip install flask requests python-dotenv
 
-# === void.py (исправленная версия — выделение текста работает) ===
+# === void.py (с исправлениями: ввод сверху + полный Command+A) ===
 cat > void.py << 'EOF'
 #!/usr/bin/env python3
 """
@@ -139,51 +139,18 @@ html, body {{
     -webkit-font-smoothing: antialiased; 
 }}
 body {{ 
-    padding: 4px 8px; 
+    padding: 8px; 
     min-height: 100vh; 
-}}
-
-#manuscript,
-#manuscript * {{
-    -webkit-user-select: text !important;
-    -moz-user-select: text !important;
-    -ms-user-select: text !important;
-    user-select: text !important;
-    cursor: text;
-}}
-
-#manuscript-header {{
-    color: #4a4a4a;
-    font-size: 10px;
-    margin-bottom: 2px;
-    user-select: text;
-}}
-#manuscript {{
-    white-space: pre-wrap;
-    word-break: break-word;
-    line-height: 1.6;
-    font-size: 14px;
-}}
-.msg {{
-    margin-bottom: 0;
-    user-select: text;
-}}
-.msg.user {{ color: #9a9a9a; }}
-.msg.assistant {{ color: #d0d0d0; }}
-.msg.user::before {{ content: "> "; color: #5a5a5a; }}
-.msg.assistant::before {{ content: "~ "; color: #5a5a5a; }}
-.separator {{
-    color: #181818;
-    font-size: 12px;
-    margin: 0 0 0 0;
-    user-select: text;
+    display: flex;
+    flex-direction: column;
 }}
 
 #input-line {{
     display: flex;
     align-items: center;
-    margin-top: 0;
+    margin-bottom: 8px;
     color: #5a5a5a;
+    flex-shrink: 0;
 }}
 .prompt {{
     margin-right: 8px;
@@ -203,22 +170,68 @@ body {{
     white-space: nowrap;
     overflow-x: auto;
 }}
-#editable-input:empty::before {{
-    content: attr(data-placeholder);
-    color: #3a3a3a;
+
+#manuscript-header {{
+    color: #4a4a4a;
+    font-size: 10px;
+    margin-bottom: 6px;
+    user-select: text;
+}}
+
+#chat-container {{
+    flex-grow: 1;
+    overflow-y: auto;
+    -webkit-user-select: text !important;
+    -moz-user-select: text !important;
+    user-select: text !important;
+}}
+
+#manuscript,
+#manuscript * {{
+    -webkit-user-select: text !important;
+    -moz-user-select: text !important;
+    user-select: text !important;
+    cursor: text;
+}}
+#manuscript {{
+    white-space: pre-wrap;
+    word-break: break-word;
+    line-height: 1.65;
+    font-size: 14px;
+}}
+.msg {{
+    margin-bottom: 0;
+    user-select: text;
+}}
+.msg.user {{ color: #9a9a9a; }}
+.msg.assistant {{ color: #d0d0d0; }}
+.msg.user::before {{ content: "> "; color: #5a5a5a; }}
+.msg.assistant::before {{ content: "~ "; color: #5a5a5a; }}
+.separator {{
+    color: #181818;
+    font-size: 12px;
+    margin: 4px 0;
+    user-select: text;
 }}
 </style>
 <link rel="stylesheet" href="/css" id="dynamic-css">
 </head>
 <body>
-<div id="manuscript-header">VOID · {MODEL_NAME} ({PROVIDER}) · thinking: {THINKING} · memory: {MEMORY_STATUS} · {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</div>
-<div id="manuscript">
-    <div class="separator">***</div>
-</div>
-<div id="input-line">
+
+  <!-- Поле ввода теперь в самом верху страницы -->
+  <div id="input-line">
     <span class="prompt">></span>
     <div id="editable-input" contenteditable="true" data-placeholder=" "></div>
-</div>
+  </div>
+
+  <div id="manuscript-header">VOID · {MODEL_NAME} ({PROVIDER}) · thinking: {THINKING} · memory: {MEMORY_STATUS} · {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</div>
+
+  <!-- Контейнер для всего текста, который должен выделяться Cmd+A -->
+  <div id="chat-container">
+    <div id="manuscript">
+      <div class="separator">***</div>
+    </div>
+  </div>
 
 <script>
 const manuscript = document.getElementById('manuscript');
@@ -301,14 +314,29 @@ editableInput.addEventListener('keydown', (e) => {{
     }}
 }});
 
-// УМНЫЙ ФОКУС — выделение текста в истории теперь работает
+// Умный фокус
 document.addEventListener('mousedown', (e) => {{
-    if (e.target.closest('#manuscript') || 
+    if (e.target.closest('#chat-container') || 
         e.target.closest('#editable-input') || 
         e.target.closest('#input-line')) {{
         return;
     }}
     setTimeout(() => editableInput.focus(), 10);
+}});
+
+// Command+A / Ctrl+A — выделяет ВЕСЬ текст (шапку + всю историю)
+document.addEventListener('keydown', (e) => {{
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'a') {{
+        e.preventDefault();
+        const selection = window.getSelection();
+        const range = document.createRange();
+        const chatContainer = document.getElementById('chat-container');
+        if (chatContainer) {{
+            range.selectNodeContents(chatContainer);
+            selection.removeAllRanges();
+            selection.addRange(range);
+        }}
+    }}
 }});
 
 // Копирование
@@ -435,9 +463,11 @@ systemctl start void.service
 sleep 2
 if systemctl is-active --quiet void.service; then
     IP=$(hostname -I | awk '{print $1}')
-    echo "✅ VOID успешно установлен!"
+    echo "✅ VOID успешно установлен и обновлён!"
     echo "🌐 Открой в браузере: http://$IP:42424"
-    echo "Выделение текста теперь работает корректно."
+    echo "Теперь:"
+    echo "   • Поле ввода > находится в самом верху"
+    echo "   • Command + A (или Ctrl + A) выделяет всю шапку + весь текст истории"
 else
     echo "❌ Ошибка запуска:"
     journalctl -u void.service -n 30 --no-pager
