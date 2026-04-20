@@ -1,8 +1,9 @@
 #!/bin/bash
 set -e
 
-# VOID Installer — обновлённая версия (поле ввода сверху + Command+A / Ctrl+A работает)
-# Сохрани как install.sh
+# VOID Installer — ВЕРНУЛИСЬ К ОРИГИНАЛЬНОМУ СТИЛЮ ГРИМУАРА
+# (поле ввода > в самом низу, как было в файле, который ты скинул)
+# + выделение работает + Command+A / Ctrl+A выделяет всю рукопись
 
 if [ "$EUID" -ne 0 ]; then
     echo "Error: run as root"
@@ -40,7 +41,7 @@ source venv/bin/activate
 pip install --upgrade pip
 pip install flask requests python-dotenv
 
-# === void.py (с исправлениями: ввод сверху + полный Command+A) ===
+# === void.py (оригинальный рукописный стиль + исправления) ===
 cat > void.py << 'EOF'
 #!/usr/bin/env python3
 """
@@ -145,10 +146,46 @@ body {{
     flex-direction: column;
 }}
 
+#manuscript-header {{
+    color: #4a4a4a;
+    font-size: 10px;
+    margin-bottom: 6px;
+    user-select: text;
+    flex-shrink: 0;
+}}
+
+#manuscript {{
+    flex-grow: 1;
+    overflow-y: auto;
+    white-space: pre-wrap;
+    word-break: break-word;
+    line-height: 1.65;
+    font-size: 14px;
+    -webkit-user-select: text !important;
+    -moz-user-select: text !important;
+    user-select: text !important;
+    cursor: text;
+}}
+
+.msg {{
+    margin-bottom: 0;
+    user-select: text;
+}}
+.msg.user {{ color: #9a9a9a; }}
+.msg.assistant {{ color: #d0d0d0; }}
+.msg.user::before {{ content: "> "; color: #5a5a5a; }}
+.msg.assistant::before {{ content: "~ "; color: #5a5a5a; }}
+.separator {{
+    color: #181818;
+    font-size: 12px;
+    margin: 4px 0;
+    user-select: text;
+}}
+
 #input-line {{
     display: flex;
     align-items: center;
-    margin-bottom: 8px;
+    margin-top: 8px;
     color: #5a5a5a;
     flex-shrink: 0;
 }}
@@ -170,67 +207,24 @@ body {{
     white-space: nowrap;
     overflow-x: auto;
 }}
-
-#manuscript-header {{
-    color: #4a4a4a;
-    font-size: 10px;
-    margin-bottom: 6px;
-    user-select: text;
-}}
-
-#chat-container {{
-    flex-grow: 1;
-    overflow-y: auto;
-    -webkit-user-select: text !important;
-    -moz-user-select: text !important;
-    user-select: text !important;
-}}
-
-#manuscript,
-#manuscript * {{
-    -webkit-user-select: text !important;
-    -moz-user-select: text !important;
-    user-select: text !important;
-    cursor: text;
-}}
-#manuscript {{
-    white-space: pre-wrap;
-    word-break: break-word;
-    line-height: 1.65;
-    font-size: 14px;
-}}
-.msg {{
-    margin-bottom: 0;
-    user-select: text;
-}}
-.msg.user {{ color: #9a9a9a; }}
-.msg.assistant {{ color: #d0d0d0; }}
-.msg.user::before {{ content: "> "; color: #5a5a5a; }}
-.msg.assistant::before {{ content: "~ "; color: #5a5a5a; }}
-.separator {{
-    color: #181818;
-    font-size: 12px;
-    margin: 4px 0;
-    user-select: text;
+#editable-input:empty::before {{
+    content: attr(data-placeholder);
+    color: #3a3a3a;
 }}
 </style>
 <link rel="stylesheet" href="/css" id="dynamic-css">
 </head>
 <body>
 
-  <!-- Поле ввода теперь в самом верху страницы -->
+  <div id="manuscript-header">VOID · {MODEL_NAME} ({PROVIDER}) · thinking: {THINKING} · memory: {MEMORY_STATUS} · {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</div>
+
+  <div id="manuscript">
+    <div class="separator">***</div>
+  </div>
+
   <div id="input-line">
     <span class="prompt">></span>
     <div id="editable-input" contenteditable="true" data-placeholder=" "></div>
-  </div>
-
-  <div id="manuscript-header">VOID · {MODEL_NAME} ({PROVIDER}) · thinking: {THINKING} · memory: {MEMORY_STATUS} · {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</div>
-
-  <!-- Контейнер для всего текста, который должен выделяться Cmd+A -->
-  <div id="chat-container">
-    <div id="manuscript">
-      <div class="separator">***</div>
-    </div>
   </div>
 
 <script>
@@ -253,7 +247,7 @@ function addMessageToUI(role, content) {{
     sep.textContent = '***';
     manuscript.appendChild(sep);
    
-    window.scrollTo(0, document.body.scrollHeight);
+    manuscript.scrollTop = manuscript.scrollHeight;
 }}
 
 async function sendMessage() {{
@@ -269,8 +263,7 @@ async function sendMessage() {{
     assistantDiv.className = 'msg assistant';
     assistantDiv.textContent = '';
     manuscript.appendChild(assistantDiv);
-   
-    window.scrollTo(0, document.body.scrollHeight);
+    manuscript.scrollTop = manuscript.scrollHeight;
    
     try {{
         const res = await fetch('/chat', {{ 
@@ -290,7 +283,7 @@ async function sendMessage() {{
             const chunk = decoder.decode(value, {{stream: true}});
             fullResponse += chunk;
             assistantDiv.textContent = fullResponse;
-            window.scrollTo(0, document.body.scrollHeight);
+            manuscript.scrollTop = manuscript.scrollHeight;
         }}
        
         const sep = document.createElement('div');
@@ -314,9 +307,9 @@ editableInput.addEventListener('keydown', (e) => {{
     }}
 }});
 
-// Умный фокус
+// Умный фокус (не ломает выделение)
 document.addEventListener('mousedown', (e) => {{
-    if (e.target.closest('#chat-container') || 
+    if (e.target.closest('#manuscript') || 
         e.target.closest('#editable-input') || 
         e.target.closest('#input-line')) {{
         return;
@@ -324,18 +317,15 @@ document.addEventListener('mousedown', (e) => {{
     setTimeout(() => editableInput.focus(), 10);
 }});
 
-// Command+A / Ctrl+A — выделяет ВЕСЬ текст (шапку + всю историю)
+// Command+A / Ctrl+A — выделяет ВСЮ рукопись
 document.addEventListener('keydown', (e) => {{
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'a') {{
         e.preventDefault();
         const selection = window.getSelection();
         const range = document.createRange();
-        const chatContainer = document.getElementById('chat-container');
-        if (chatContainer) {{
-            range.selectNodeContents(chatContainer);
-            selection.removeAllRanges();
-            selection.addRange(range);
-        }}
+        range.selectNodeContents(manuscript);
+        selection.removeAllRanges();
+        selection.addRange(range);
     }}
 }});
 
@@ -463,13 +453,15 @@ systemctl start void.service
 sleep 2
 if systemctl is-active --quiet void.service; then
     IP=$(hostname -I | awk '{print $1}')
-    echo "✅ VOID успешно установлен и обновлён!"
-    echo "🌐 Открой в браузере: http://$IP:42424"
+    echo "✅ VOID установлен в оригинальном рукописном стиле!"
+    echo "🌐 http://$IP:42424"
     echo "Теперь:"
-    echo "   • Поле ввода > находится в самом верху"
-    echo "   • Command + A (или Ctrl + A) выделяет всю шапку + весь текст истории"
+    echo "   • Поле > внизу (как в твоём исходном файле)"
+    echo "   • Текст печатается сразу после стрелочки"
+    echo "   • Command+A / Ctrl+A выделяет всю рукопись"
+    echo "   • Выделение мышкой работает"
 else
-    echo "❌ Ошибка запуска:"
+    echo "❌ Ошибка:"
     journalctl -u void.service -n 30 --no-pager
     exit 1
 fi
