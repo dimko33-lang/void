@@ -1,43 +1,31 @@
 #!/bin/bash
 set -e
 
-if [ "$EUID" -ne 0 ]; then
-    echo "Error: run as root"
-    exit 1
-fi
+[ "$EUID" -ne 0 ] && echo "run as root" && exit 1
 
 KEY="$1"
-if [ -z "$KEY" ]; then
-    echo "Usage: curl -s URL | sudo bash -s -- \"YOUR-KEY\""
-    exit 1
-fi
+[ -z "$KEY" ] && echo "Usage: curl -s URL | sudo bash -s -- \"KEY\"" && exit 1
 
-# Остановка старой версии
 systemctl stop void 2>/dev/null || true
 systemctl disable void 2>/dev/null || true
 rm -f /etc/systemd/system/void.service
 rm -rf /opt/void
 systemctl daemon-reload
 
-# Зависимости
 apt update
-apt install -y python3 python3-pip python3-venv curl
+apt install -y python3 python3-pip python3-venv
 
-# Директория
 mkdir -p /opt/void/voids
 cd /opt/void
 
-# Ключ
 echo "KIMI_API_KEY=$KEY" > .env
 chmod 600 .env
 
-# Виртуальное окружение
 python3 -m venv venv
 source venv/bin/activate
 pip install --upgrade pip
 pip install flask requests python-dotenv
 
-# Основной скрипт
 cat > void.py << 'PYEOF'
 #!/usr/bin/env python3
 import json
@@ -45,7 +33,6 @@ import os
 import re
 import subprocess
 from pathlib import Path
-from typing import List, Generator
 from datetime import datetime
 import requests
 from dotenv import load_dotenv
@@ -56,26 +43,13 @@ load_dotenv()
 BASE_DIR = Path(__file__).parent
 VOIDS_DIR = BASE_DIR / "voids"
 CSS_FILE = VOIDS_DIR / "current.css"
-LOG_FILE = BASE_DIR / "void.log"
-MEMORY_FILE = BASE_DIR / "memory.json"
 
 VOIDS_DIR.mkdir(exist_ok=True)
 
-memory = []
-if MEMORY_FILE.exists():
-    try:
-        with open(MEMORY_FILE, 'r', encoding='utf-8') as f:
-            memory.extend(json.load(f))
-    except:
-        pass
-
-def save_memory():
-    with open(MEMORY_FILE, 'w', encoding='utf-8') as f:
-        json.dump(memory, f, ensure_ascii=False, indent=2)
-
-def log_to_file(role, content):
-    with open(LOG_FILE, 'a', encoding='utf-8') as f:
-        f.write(f"{content}\n***\n")
+# Серверная память (только в оперативке, без записи на диск)
+conversation_history = []
+thinking_enabled = False
+memory_enabled = False
 
 class VoidAgent:
     def __init__(self):
@@ -84,7 +58,7 @@ class VoidAgent:
         self.url = "https://api.moonshot.ai/v1/chat/completions"
         self.timeout = 120
 
-    def _call_llm_stream(self, messages: List[dict]) -> Generator[str, None, None]:
+    def _call_llm_stream(self, messages):
         headers = {"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"}
         payload = {"model": self.model, "messages": messages, "stream": True}
         resp = requests.post(self.url, headers=headers, json=payload, timeout=self.timeout, stream=True)
@@ -103,7 +77,7 @@ class VoidAgent:
                 except:
                     continue
 
-    def chat_stream(self, messages: List[dict]) -> Generator[str, None, None]:
+    def chat_stream(self, messages):
         yield from self._call_llm_stream(messages)
 
 agent = VoidAgent()
@@ -111,166 +85,171 @@ app = Flask(__name__)
 
 MODEL_NAME = "kimi-k2.5"
 PROVIDER = "Moonshot"
-THINKING = "enabled"
-MEMORY_STATUS = "on"
 
-HTML = f"""
+HTML = """
 <!DOCTYPE html>
-<html lang="ru">
+<html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes">
-<title>VOID · Гримуар</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>VOID</title>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap');
-* {{ box-sizing: border-box; margin: 0; padding: 0; }}
-html, body {{ background: #000; color: #e0e0e0; font-family: 'JetBrains Mono', monospace; font-weight: 400; -webkit-font-smoothing: antialiased; }}
-body {{ padding: 4px 8px; min-height: 100vh; }}
-#manuscript-header {{
-    color: #4a4a4a;
-    font-size: 10px;
-    margin-bottom: 0;
-    user-select: text;
-}}
-#manuscript {{
-    white-space: pre-wrap;
-    word-break: break-word;
-    line-height: 1.6;
-    font-size: 14px;
-    margin-top: 0;
-    user-select: text;
-}}
-.msg {{ margin-bottom: 0; user-select: text; }}
-.separator {{
-    color: transparent;
-    font-size: 12px;
-    margin: 0;
-    user-select: text;
-}}
-#input-line {{
-    display: flex;
-    align-items: center;
-    margin-top: 0;
-    color: #5a5a5a;
-}}
-.prompt {{
-    margin-right: 8px;
-    user-select: none;
-}}
-#editable-input {{
-    background: transparent;
-    border: none;
-    color: #e0e0e0;
-    font-family: inherit;
-    font-size: 14px;
-    flex-grow: 1;
-    outline: none;
-    caret-color: #8a8a8a;
-    padding: 0;
-    user-select: text;
-}}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { background: #0c0c0c; color: #d4d4d4; font-family: 'JetBrains Mono', monospace; font-size: 14px; line-height: 1.5; padding: 6px 12px; min-height: 100vh; }
+#header { color: #4a4a4a; font-size: 10px; margin: 0; padding: 0; line-height: 1.3; user-select: text; }
+#manuscript { margin: 0; padding: 0; user-select: text; }
+.msg { margin: 0; padding: 0; line-height: 1.6; white-space: pre-wrap; word-break: break-word; user-select: text; }
+.msg.user { color: #9a9a9a; }
+.msg.assistant { color: #d4d4d4; }
+.msg.system { color: #6a6a6a; font-style: italic; }
+.msg .prefix { color: #5a5a5a; user-select: text; }
+.separator { margin: 0; padding: 0; line-height: 1.5; color: transparent; user-select: text; font-size: 12px; }
+#input-line { display: flex; align-items: center; margin: 0; padding: 0; color: #6a6a6a; }
+.prompt { margin-right: 8px; user-select: none; color: #5a5a5a; }
+#editable-input { background: transparent; border: none; color: #d4d4d4; font-family: inherit; font-size: 14px; flex-grow: 1; outline: none; caret-color: #a0a0a0; padding: 0; min-height: 1.5em; user-select: text; }
+#editable-input:empty::before { content: attr(data-placeholder); color: #4a4a4a; }
 </style>
 <link rel="stylesheet" href="/css" id="dynamic-css">
 </head>
 <body>
-<div id="manuscript-header">VOID · {MODEL_NAME} ({PROVIDER}) · thinking: {THINKING} · memory: {MEMORY_STATUS} · {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</div>
-<div id="manuscript">
-<div class="separator">***</div>
-</div>
-<div id="input-line">
-<span class="prompt">></span>
-<div id="editable-input" contenteditable="true" data-placeholder=" "></div>
-</div>
+<div id="header">VOID · """ + MODEL_NAME + """ (""" + PROVIDER + """) · <span id="thinking-status">thinking: off</span> · <span id="memory-status">memory: off</span> · """ + datetime.now().strftime('%Y-%m-%d %H:%M:%S') + """</div>
+<div id="manuscript"><div class="separator">***</div></div>
+<div id="input-line"><span class="prompt">></span><div id="editable-input" contenteditable="true" data-placeholder=" "></div></div>
 <script>
 const manuscript = document.getElementById('manuscript');
 const editableInput = document.getElementById('editable-input');
 let isSending = false;
-function refreshCSS() {{ document.getElementById('dynamic-css').href = '/css?' + Date.now(); }}
-function addMessageToUI(role, content) {{
+
+async function loadHistory() {
+    const res = await fetch('/history');
+    const data = await res.json();
+    manuscript.innerHTML = '<div class="separator">***</div>';
+    data.history.forEach(msg => addMessageToUI(msg.role, msg.content, false));
+    document.getElementById('thinking-status').textContent = `thinking: ${data.thinking ? 'on' : 'off'}`;
+    document.getElementById('memory-status').textContent = `memory: ${data.memory ? 'on' : 'off'}`;
+}
+
+function addMessageToUI(role, content, scroll = true) {
     const msgDiv = document.createElement('div');
-    msgDiv.className = `msg ${{role}}`;
-    const prefix = role === 'user' ? '> ' : '~ ';
-    msgDiv.textContent = prefix + content;
+    msgDiv.className = `msg ${role}`;
+    const prefixSpan = document.createElement('span');
+    prefixSpan.className = 'prefix';
+    prefixSpan.textContent = role === 'user' ? '> ' : '~ ';
+    msgDiv.appendChild(prefixSpan);
+    msgDiv.appendChild(document.createTextNode(content));
     manuscript.appendChild(msgDiv);
     const sep = document.createElement('div');
     sep.className = 'separator';
     sep.textContent = '***';
     manuscript.appendChild(sep);
-    window.scrollTo(0, document.body.scrollHeight);
-}}
-async function sendMessage() {{
+    if (scroll) window.scrollTo(0, document.body.scrollHeight);
+}
+
+function refreshCSS() { document.getElementById('dynamic-css').href = '/css?' + Date.now(); }
+
+async function sendMessage() {
     const text = editableInput.innerText.trim();
     if (!text || isSending) return;
     isSending = true;
     editableInput.innerText = '';
-    editableInput.focus();
+    
+    if (text.startsWith('/')) {
+        const res = await fetch('/command', { 
+            method: 'POST', 
+            headers: {'Content-Type': 'application/json'}, 
+            body: JSON.stringify({command: text}) 
+        });
+        const data = await res.json();
+        if (data.clear) manuscript.innerHTML = '<div class="separator">***</div>';
+        else addMessageToUI('system', data.message);
+        document.getElementById('thinking-status').textContent = `thinking: ${data.thinking ? 'on' : 'off'}`;
+        document.getElementById('memory-status').textContent = `memory: ${data.memory ? 'on' : 'off'}`;
+        isSending = false;
+        editableInput.focus();
+        return;
+    }
+    
     addMessageToUI('user', text);
     const assistantDiv = document.createElement('div');
     assistantDiv.className = 'msg assistant';
-    assistantDiv.textContent = '~ ';
+    const prefixSpan = document.createElement('span');
+    prefixSpan.className = 'prefix';
+    prefixSpan.textContent = '~ ';
+    assistantDiv.appendChild(prefixSpan);
     manuscript.appendChild(assistantDiv);
-    window.scrollTo(0, document.body.scrollHeight);
-    try {{
-        const res = await fetch('/chat', {{ method: 'POST', headers: {{'Content-Type': 'application/json'}}, body: JSON.stringify({{message: text}}) }});
+    
+    try {
+        const res = await fetch('/chat', { 
+            method: 'POST', 
+            headers: {'Content-Type': 'application/json'}, 
+            body: JSON.stringify({message: text}) 
+        });
         if (!res.ok) throw new Error('Chat failed');
         const reader = res.body.getReader();
         const decoder = new TextDecoder();
         let fullResponse = '';
-        while (true) {{
-            const {{done, value}} = await reader.read();
+        while (true) {
+            const {done, value} = await reader.read();
             if (done) break;
-            const chunk = decoder.decode(value, {{stream: true}});
+            const chunk = decoder.decode(value, {stream: true});
             fullResponse += chunk;
-            assistantDiv.textContent = '~ ' + fullResponse;
+            assistantDiv.innerHTML = '<span class="prefix">~ </span>' + fullResponse;
             window.scrollTo(0, document.body.scrollHeight);
-        }}
+        }
         const sep = document.createElement('div');
         sep.className = 'separator';
         sep.textContent = '***';
         manuscript.appendChild(sep);
         refreshCSS();
-    }} catch (e) {{ console.error(e); }} finally {{
+    } catch (e) {
+        assistantDiv.innerHTML = '<span class="prefix">~ </span>[error]';
+    } finally {
         isSending = false;
         editableInput.focus();
-    }}
-}}
-editableInput.addEventListener('keydown', (e) => {{
-    if (e.key === 'Enter' && !e.shiftKey) {{
-        e.preventDefault();
-        sendMessage();
-    }}
-}});
-document.addEventListener('mousedown', (e) => {{
-    if (e.target.closest('#manuscript') || e.target.closest('#editable-input') || e.target.closest('#input-line')) return;
-    setTimeout(() => editableInput.focus(), 10);
-}});
-document.addEventListener('keydown', (e) => {{
-    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'a') {{
+    }
+}
+
+editableInput.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
+});
+
+document.addEventListener('click', e => {
+    const isTextSelection = window.getSelection().toString().length > 0;
+    if (!isTextSelection && !e.target.closest('.msg') && !e.target.closest('#editable-input') && !e.target.closest('#header')) {
+        editableInput.focus();
+    }
+});
+
+document.addEventListener('keydown', e => {
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'a') {
         e.preventDefault();
         const selection = window.getSelection();
         const range = document.createRange();
-        const header = document.getElementById('manuscript-header');
-        const manuscriptEl = document.getElementById('manuscript');
+        const header = document.getElementById('header');
         range.setStartBefore(header);
-        range.setEndAfter(manuscriptEl.lastChild || manuscriptEl);
+        range.setEndAfter(manuscript.lastChild || manuscript);
         selection.removeAllRanges();
         selection.addRange(range);
-    }}
-}});
-document.addEventListener('copy', (e) => {{
+    }
+});
+
+document.addEventListener('copy', e => {
     const selection = window.getSelection();
     e.clipboardData.setData('text/plain', selection.toString());
     e.preventDefault();
-}});
+});
+
+loadHistory();
+editableInput.focus();
 </script>
 </body>
 </html>
 """
 
-def parse_and_execute_tools(content: str):
+def parse_and_execute_tools(content):
     changed = False
-    cmd_pattern = r'\[CMD\](.*?)\[/CMD\]'
-    for match in re.finditer(cmd_pattern, content, re.DOTALL):
+    for match in re.finditer(r'\[CMD\](.*?)\[/CMD\]', content, re.DOTALL):
         cmd = match.group(1).strip()
         try:
             result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=30, cwd=VOIDS_DIR)
@@ -279,15 +258,14 @@ def parse_and_execute_tools(content: str):
             content = content.replace(match.group(0), f"[executed: {cmd}]\n{output}")
         except Exception as e:
             content = content.replace(match.group(0), f"[error: {cmd}]\n{str(e)}")
-    css_pattern = r'\[CSS\](.*?)\[/CSS\]'
-    for match in re.finditer(css_pattern, content, re.DOTALL):
+    for match in re.finditer(r'\[CSS\](.*?)\[/CSS\]', content, re.DOTALL):
         css = match.group(1).strip()
         try:
             CSS_FILE.write_text(css, encoding='utf-8')
             content = content.replace(match.group(0), "[style applied]")
             changed = True
-        except Exception as e:
-            content = content.replace(match.group(0), f"[css error: {str(e)}]")
+        except:
+            pass
     return content, changed
 
 @app.route('/')
@@ -298,51 +276,77 @@ def get_css():
     if CSS_FILE.exists(): return Response(CSS_FILE.read_text(), mimetype='text/css')
     return '', 200
 
-@app.route('/memory')
-def get_memory(): return jsonify(memory)
+@app.route('/history')
+def get_history():
+    return jsonify({
+        'history': conversation_history,
+        'thinking': thinking_enabled,
+        'memory': memory_enabled
+    })
+
+@app.route('/command', methods=['POST'])
+def handle_command():
+    global thinking_enabled, memory_enabled, conversation_history
+    data = request.get_json()
+    cmd = data.get('command', '').lower()
+    
+    if cmd == '/think on':
+        thinking_enabled = True
+        return jsonify({'thinking': True, 'memory': memory_enabled, 'message': 'thinking enabled'})
+    elif cmd == '/think off':
+        thinking_enabled = False
+        return jsonify({'thinking': False, 'memory': memory_enabled, 'message': 'thinking disabled'})
+    elif cmd == '/memory on':
+        memory_enabled = True
+        return jsonify({'thinking': thinking_enabled, 'memory': True, 'message': 'memory enabled'})
+    elif cmd == '/memory off':
+        memory_enabled = False
+        conversation_history = []
+        return jsonify({'thinking': thinking_enabled, 'memory': False, 'message': 'memory cleared'})
+    elif cmd == '/clear':
+        conversation_history = []
+        return jsonify({'thinking': thinking_enabled, 'memory': memory_enabled, 'clear': True})
+    else:
+        return jsonify({'thinking': thinking_enabled, 'memory': memory_enabled, 'message': 'unknown command'})
 
 @app.route('/chat', methods=['POST'])
 def chat():
+    global conversation_history
     data = request.get_json()
     user_msg = data.get('message', '').strip()
     if not user_msg: return jsonify({'error': 'empty'}), 400
-    memory.append({"role": "user", "content": user_msg})
-    save_memory()
-    log_to_file('user', user_msg)
+    
+    conversation_history.append({"role": "user", "content": user_msg})
+    
     def generate():
+        global conversation_history
         full_response = ""
         css_changed = False
         try:
-            for chunk in agent.chat_stream(memory):
-                try: clean_chunk = chunk.encode('latin-1').decode('utf-8')
-                except: clean_chunk = chunk
-                full_response += clean_chunk
-                yield clean_chunk
+            messages = conversation_history if memory_enabled else [{"role": "user", "content": user_msg}]
+            for chunk in agent.chat_stream(messages):
+                full_response += chunk
+                yield chunk
             if '[CMD]' in full_response or '[CSS]' in full_response:
                 full_response, css_changed = parse_and_execute_tools(full_response)
-            memory.append({"role": "assistant", "content": full_response})
-            save_memory()
-            log_to_file('assistant', full_response)
+            conversation_history.append({"role": "assistant", "content": full_response})
             if css_changed: yield "\n\n✨ room updated"
         except Exception as e:
             error_msg = f"[error]: {str(e)}"
-            memory.append({"role": "assistant", "content": error_msg})
-            save_memory()
-            log_to_file('assistant', error_msg)
+            conversation_history.append({"role": "assistant", "content": error_msg})
             yield error_msg
+    
     return Response(stream_with_context(generate()), mimetype='text/plain; charset=utf-8')
 
 if __name__ == '__main__':
     host = os.getenv('HOST', '0.0.0.0')
     port = int(os.getenv('PORT', 42424))
-    print(f"VOID :: http://{host}:{port}")
     app.run(host=host, port=port, debug=False, threaded=True)
 PYEOF
 
-# Создание сервиса
 cat > /etc/systemd/system/void.service << EOF
 [Unit]
-Description=Void AI Agent
+Description=Void
 After=network.target
 
 [Service]
@@ -366,9 +370,8 @@ systemctl start void.service
 sleep 2
 if systemctl is-active --quiet void.service; then
     IP=$(hostname -I | awk '{print $1}')
-    echo "✅ VOID запущен"
-    echo "🌐 http://$IP:42424"
+    echo "http://$IP:42424"
 else
-    journalctl -u void.service -n 30 --no-pager
+    journalctl -u void.service -n 10 --no-pager
     exit 1
 fi
